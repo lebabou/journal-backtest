@@ -634,87 +634,70 @@
 
 
 
+
   /* ---------- NEWS (calendrier économique) ---------- */
-  var _newsIframe = null; // persist iframe between tab switches
+  var _newsReady = false;
 
   function renderNews() {
-    var saved = DB.newsFilter || {};
-    var currencies = saved.currencies || ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
-    var impact = saved.impact || '3';
+    var nc = $('#news-container');
+    // First time: build the filters + iframe inside #news-container
+    if (!_newsReady) {
+      var saved = DB.newsFilter || {};
+      var currencies = saved.currencies || ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
+      var impact = saved.impact || '3';
+      var ccyMap = {USD:'5',EUR:'22',GBP:'17',JPY:'25',CHF:'34',AUD:'72',NZD:'43',CAD:'6'};
+      var allCcy = ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
+      var ccyChecks = allCcy.map(function(c) {
+        var checked = currencies.indexOf(c) >= 0 ? ' checked' : '';
+        return '<label class="nw-chip"><input type="checkbox" class="nw-ccy" value="' + c + '"' + checked + '> ' + c + '</label>';
+      }).join('');
 
-    var ccyMap = {USD:'5',EUR:'22',GBP:'17',JPY:'25',CHF:'34',AUD:'72',NZD:'43',CAD:'6'};
-    var allCcy = ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
-
-    var ccyChecks = allCcy.map(function(c) {
-      var checked = currencies.indexOf(c) >= 0 ? ' checked' : '';
-      return '<label class="nw-chip"><input type="checkbox" class="nw-ccy" value="' + c + '"' + checked + '> ' + c + '</label>';
-    }).join('');
-
-    $('#main').innerHTML =
-      '<h1>\ud83d\udcc5 Economic Calendar</h1>' +
-      '<div class="nw-filters">' +
-      '<div class="nw-filter-row"><span class="nw-label">Currencies:</span>' + ccyChecks +
-      '<button class="btn sm" id="nw-all">All</button><button class="btn sm" id="nw-none">None</button></div>' +
-      '<div class="nw-filter-row"><span class="nw-label">Impact:</span>' +
-      '<label class="nw-chip"><input type="radio" name="nw-imp" value="3"' + (impact === '3' ? ' checked' : '') + '> \ud83d\udd34 High only</label>' +
-      '<label class="nw-chip"><input type="radio" name="nw-imp" value="2,3"' + (impact === '2,3' ? ' checked' : '') + '> \ud83d\udfe0 Medium + High</label>' +
-      '<label class="nw-chip"><input type="radio" name="nw-imp" value="1,2,3"' + (impact === '1,2,3' ? ' checked' : '') + '> All</label>' +
-      '</div>' +
-      '<div class="nw-filter-row"><button class="btn primary" id="nw-apply">Apply filters</button>' +
-      '<button class="btn" id="nw-reset">Reload calendar</button></div>' +
-      '</div>' +
-      '<div id="nw-frame-wrap" class="cal-embed"></div>' +
-      '<p class="muted small" style="margin-top:8px">\ud83d\udca1 Use the calendar\'s built-in date picker and timezone selector to navigate to any week. Your selection is preserved when switching tabs. \u2014 Source: <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a></p>';
-
-    function getFilterUrl() {
       var ccys = [];
-      document.querySelectorAll('.nw-ccy').forEach(function(cb) {
-        if (cb.checked && ccyMap[cb.value]) ccys.push(ccyMap[cb.value]);
-      });
-      if (!ccys.length) return null;
-      var imp = '3';
-      document.querySelectorAll('input[name="nw-imp"]').forEach(function(r) { if (r.checked) imp = r.value; });
+      currencies.forEach(function(c) { if (ccyMap[c]) ccys.push(ccyMap[c]); });
+      var iframeUrl = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
+        '&importance=' + impact + '&features=datepicker,timezone&countries=' + ccys.join(',') + '&calType=week&timeZone=55&lang=1';
 
-      // Save preferences
-      var selCcys = [];
-      document.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked) selCcys.push(cb.value); });
-      DB.newsFilter = { currencies: selCcys, impact: imp };
+      nc.innerHTML =
+        '<div style="max-width:1400px;margin:0 auto;padding:0 18px">' +
+        '<h1>\ud83d\udcc5 Economic Calendar</h1>' +
+        '<div class="nw-filters">' +
+        '<div class="nw-filter-row"><span class="nw-label">Currencies:</span>' + ccyChecks +
+        '<button class="btn sm" id="nw-all">All</button><button class="btn sm" id="nw-none">None</button></div>' +
+        '<div class="nw-filter-row"><span class="nw-label">Impact:</span>' +
+        '<label class="nw-chip"><input type="radio" name="nw-imp" value="3"' + (impact === '3' ? ' checked' : '') + '> \ud83d\udd34 High only</label>' +
+        '<label class="nw-chip"><input type="radio" name="nw-imp" value="2,3"' + (impact === '2,3' ? ' checked' : '') + '> \ud83d\udfe0 Medium + High</label>' +
+        '<label class="nw-chip"><input type="radio" name="nw-imp" value="1,2,3"' + (impact === '1,2,3' ? ' checked' : '') + '> All</label>' +
+        '</div>' +
+        '<div class="nw-filter-row"><button class="btn primary" id="nw-apply">Apply filters</button></div>' +
+        '</div>' +
+        '<div class="cal-embed"><iframe id="nw-iframe" src="' + iframeUrl + '" width="100%" height="600" frameBorder="0" allowtransparency="true" style="border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px"></iframe></div>' +
+        '<p class="muted small" style="margin-top:8px">\ud83d\udca1 Use the calendar\'s built-in date picker and timezone selector \u2014 they are preserved when you switch tabs. Source: <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a></p>' +
+        '</div>';
 
-      return 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
-        '&importance=' + imp +
-        '&features=datepicker,timezone' +
-        '&countries=' + ccys.join(',') +
-        '&calType=week&timeZone=55&lang=1';
+      var ccyMapRef = ccyMap;
+      nc.querySelector('#nw-apply').onclick = function() {
+        var c = []; nc.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked && ccyMapRef[cb.value]) c.push(ccyMapRef[cb.value]); });
+        if (!c.length) return;
+        var imp = '3'; nc.querySelectorAll('input[name="nw-imp"]').forEach(function(r) { if (r.checked) imp = r.value; });
+        var sc = []; nc.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked) sc.push(cb.value); });
+        DB.newsFilter = { currencies: sc, impact: imp };
+        var url = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
+          '&importance=' + imp + '&features=datepicker,timezone&countries=' + c.join(',') + '&calType=week&timeZone=55&lang=1';
+        nc.querySelector('#nw-iframe').src = url;
+      };
+      nc.querySelector('#nw-all').onclick = function() { nc.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); };
+      nc.querySelector('#nw-none').onclick = function() { nc.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = false; }); };
+      _newsReady = true;
     }
+    // Show news container, hide main
+    nc.hidden = false;
+    $('#main').hidden = true;
+  }
 
-    function buildIframe(forceNew) {
-      var wrap = $('#nw-frame-wrap');
-      // Reuse existing iframe if no filter change
-      if (!forceNew && _newsIframe && _newsIframe.parentNode !== wrap) {
-        wrap.innerHTML = '';
-        wrap.appendChild(_newsIframe);
-        return;
-      }
-      var url = getFilterUrl();
-      if (!url) { wrap.innerHTML = '<div class="note">Select at least one currency.</div>'; return; }
-      var iframe = document.createElement('iframe');
-      iframe.src = url;
-      iframe.width = '100%';
-      iframe.height = '600';
-      iframe.frameBorder = '0';
-      iframe.setAttribute('allowtransparency', 'true');
-      iframe.style.cssText = 'border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px';
-      wrap.innerHTML = '';
-      wrap.appendChild(iframe);
-      _newsIframe = iframe;
-    }
-
-    $('#nw-apply').onclick = function() { buildIframe(true); }; // true = force new iframe with new filters
-    $('#nw-reset').onclick = function() { buildIframe(true); };
-    $('#nw-all').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); buildIframe(true); };
-    $('#nw-none').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = false; }); };
-
-    buildIframe(false); // false = reuse existing iframe if available
+  function hideNews() {
+    var nc = $('#news-container');
+    if (nc) nc.hidden = true;
+    $('#main').hidden = false;
   }
 
 
@@ -980,6 +963,7 @@
   /* ---------- routage ---------- */
   const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'plan', 'calc', 'data'];
   function render() {
+    hideNews();
     $('#dbname').textContent = (DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
     ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, data: renderData }[view] || renderDashboard)();
