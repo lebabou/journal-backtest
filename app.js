@@ -633,38 +633,21 @@
 
 
 
+
   /* ---------- NEWS (calendrier économique) ---------- */
+  var _newsIframe = null; // persist iframe between tab switches
+
   function renderNews() {
     var saved = DB.newsFilter || {};
     var currencies = saved.currencies || ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
     var impact = saved.impact || '3';
-    var tz = saved.timezone || '55';
-    var savedDate = saved.date || new Date().toISOString().slice(0,10);
 
     var ccyMap = {USD:'5',EUR:'22',GBP:'17',JPY:'25',CHF:'34',AUD:'72',NZD:'43',CAD:'6'};
     var allCcy = ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
 
-    var tzOptions = [
-      {v:'8',l:'GMT (London)'},
-      {v:'4',l:'GMT-5 (New York)'},
-      {v:'10',l:'GMT-6 (Chicago)'},
-      {v:'12',l:'GMT-8 (Los Angeles)'},
-      {v:'37',l:'GMT+1 (Paris / Lagos)'},
-      {v:'38',l:'GMT+2 (Johannesburg / Cairo)'},
-      {v:'55',l:'GMT+3 (Nairobi / Antananarivo)'},
-      {v:'23',l:'GMT+5:30 (Mumbai)'},
-      {v:'69',l:'GMT+8 (Singapore / Hong Kong)'},
-      {v:'27',l:'GMT+9 (Tokyo)'},
-      {v:'44',l:'GMT+10 (Sydney)'}
-    ];
-
     var ccyChecks = allCcy.map(function(c) {
       var checked = currencies.indexOf(c) >= 0 ? ' checked' : '';
       return '<label class="nw-chip"><input type="checkbox" class="nw-ccy" value="' + c + '"' + checked + '> ' + c + '</label>';
-    }).join('');
-
-    var tzOpts = tzOptions.map(function(t) {
-      return '<option value="' + t.v + '"' + (t.v === tz ? ' selected' : '') + '>' + t.l + '</option>';
     }).join('');
 
     $('#main').innerHTML =
@@ -677,62 +660,61 @@
       '<label class="nw-chip"><input type="radio" name="nw-imp" value="2,3"' + (impact === '2,3' ? ' checked' : '') + '> \ud83d\udfe0 Medium + High</label>' +
       '<label class="nw-chip"><input type="radio" name="nw-imp" value="1,2,3"' + (impact === '1,2,3' ? ' checked' : '') + '> All</label>' +
       '</div>' +
-      '<div class="nw-filter-row"><span class="nw-label">Week of:</span>' +
-      '<input type="date" id="nw-date" value="' + esc(savedDate) + '" style="padding:4px 8px;font-size:13px">' +
-      '<span class="nw-label" style="margin-left:12px">Timezone:</span>' +
-      '<select id="nw-tz" style="padding:4px 8px;font-size:13px">' + tzOpts + '</select>' +
-      '</div>' +
-      '<button class="btn primary" id="nw-apply">Apply filters</button>' +
+      '<div class="nw-filter-row"><button class="btn primary" id="nw-apply">Apply filters</button>' +
+      '<button class="btn" id="nw-reset">Reload calendar</button></div>' +
       '</div>' +
       '<div id="nw-frame-wrap" class="cal-embed"></div>' +
-      '<p class="muted small" style="margin-top:8px">Source: <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a></p>';
+      '<p class="muted small" style="margin-top:8px">\ud83d\udca1 Use the calendar\'s built-in date picker and timezone selector to navigate to any week. Your selection is preserved when switching tabs. \u2014 Source: <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a></p>';
 
-    function getMonday(dateStr) {
-      var d = new Date(dateStr + 'T00:00:00');
-      var day = d.getDay(); var diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      return new Date(d.setDate(diff));
-    }
-
-    function buildIframe() {
+    function getFilterUrl() {
       var ccys = [];
       document.querySelectorAll('.nw-ccy').forEach(function(cb) {
         if (cb.checked && ccyMap[cb.value]) ccys.push(ccyMap[cb.value]);
       });
-      if (!ccys.length) { $('#nw-frame-wrap').innerHTML = '<div class="note">Select at least one currency.</div>'; return; }
-
+      if (!ccys.length) return null;
       var imp = '3';
       document.querySelectorAll('input[name="nw-imp"]').forEach(function(r) { if (r.checked) imp = r.value; });
-      var selTz = $('#nw-tz').value;
-      var selDate = $('#nw-date').value || new Date().toISOString().slice(0,10);
-
-      var mon = getMonday(selDate);
-      var fri = new Date(mon); fri.setDate(mon.getDate() + 4);
-      var dateFrom = mon.toISOString().slice(0,10);
-      var dateTo = fri.toISOString().slice(0,10);
 
       // Save preferences
       var selCcys = [];
       document.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked) selCcys.push(cb.value); });
-      DB.newsFilter = { currencies: selCcys, impact: imp, timezone: selTz, date: selDate };
+      DB.newsFilter = { currencies: selCcys, impact: imp };
 
-      var url = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
+      return 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
         '&importance=' + imp +
         '&features=datepicker,timezone' +
         '&countries=' + ccys.join(',') +
-        '&calType=week' +
-        '&timeZone=' + selTz +
-        '&lang=1' +
-        '&dateFrom=' + dateFrom +
-        '&dateTo=' + dateTo;
-
-      $('#nw-frame-wrap').innerHTML = '<iframe src="' + url + '" width="100%" height="600" frameBorder="0" allowtransparency="true" style="border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px"></iframe>';
+        '&calType=week&timeZone=55&lang=1';
     }
 
-    $('#nw-apply').onclick = buildIframe;
-    $('#nw-all').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); buildIframe(); };
+    function buildIframe(forceNew) {
+      var wrap = $('#nw-frame-wrap');
+      // Reuse existing iframe if no filter change
+      if (!forceNew && _newsIframe && _newsIframe.parentNode !== wrap) {
+        wrap.innerHTML = '';
+        wrap.appendChild(_newsIframe);
+        return;
+      }
+      var url = getFilterUrl();
+      if (!url) { wrap.innerHTML = '<div class="note">Select at least one currency.</div>'; return; }
+      var iframe = document.createElement('iframe');
+      iframe.src = url;
+      iframe.width = '100%';
+      iframe.height = '600';
+      iframe.frameBorder = '0';
+      iframe.setAttribute('allowtransparency', 'true');
+      iframe.style.cssText = 'border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px';
+      wrap.innerHTML = '';
+      wrap.appendChild(iframe);
+      _newsIframe = iframe;
+    }
+
+    $('#nw-apply').onclick = function() { buildIframe(true); }; // true = force new iframe with new filters
+    $('#nw-reset').onclick = function() { buildIframe(true); };
+    $('#nw-all').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); buildIframe(true); };
     $('#nw-none').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = false; }); };
 
-    buildIframe();
+    buildIframe(false); // false = reuse existing iframe if available
   }
 
 
