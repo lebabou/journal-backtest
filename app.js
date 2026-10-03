@@ -631,17 +631,62 @@
 
 
 
+
   /* ---------- NEWS (calendrier économique) ---------- */
   function renderNews() {
+    var saved = DB.newsFilter || { currencies: ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'], impact: '3' };
+
+    var ccyMap = {USD:'5',EUR:'22',GBP:'17',JPY:'25',CHF:'34',AUD:'72',NZD:'43',CAD:'6'};
+    var allCcy = ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
+
+    var ccyChecks = allCcy.map(function(c) {
+      var checked = saved.currencies.indexOf(c) >= 0 ? ' checked' : '';
+      return '<label class="nw-chip"><input type="checkbox" class="nw-ccy" value="' + c + '"' + checked + '> ' + c + '</label>';
+    }).join('');
+
     $('#main').innerHTML =
       '<h1>\ud83d\udcc5 Calendrier \u00e9conomique</h1>' +
-      '<p class="muted small" style="margin-bottom:12px">S\u00e9lectionnez n\u2019importe quelle semaine avec le s\u00e9lecteur de date int\u00e9gr\u00e9. Donn\u00e9es historiques disponibles (2024 et ant\u00e9rieures).</p>' +
-      '<div class="cal-embed">' +
-      '<iframe id="nw-iframe" src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=1,2,3&features=datepicker,timezone&countries=5,22,17,25,34,72,6,37,26,12,35,110,43,4,36&calType=week&timeZone=55&lang=5" ' +
-      'width="100%" height="600" frameBorder="0" allowtransparency="true" marginwidth="0" marginheight="0" style="border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)"></iframe>' +
+      '<div class="nw-filters">' +
+      '<div class="nw-filter-row"><span class="nw-label">Devises :</span>' + ccyChecks +
+      '<button class="btn sm" id="nw-all">Toutes</button><button class="btn sm" id="nw-none">Aucune</button></div>' +
+      '<div class="nw-filter-row"><span class="nw-label">Impact :</span>' +
+      '<label class="nw-chip"><input type="radio" name="nw-imp" value="3"' + (saved.impact === '3' ? ' checked' : '') + '> \ud83d\udd34 High uniquement</label>' +
+      '<label class="nw-chip"><input type="radio" name="nw-imp" value="2,3"' + (saved.impact === '2,3' ? ' checked' : '') + '> \ud83d\udfe0 Medium + High</label>' +
+      '<label class="nw-chip"><input type="radio" name="nw-imp" value="1,2,3"' + (saved.impact === '1,2,3' ? ' checked' : '') + '> Tous</label>' +
       '</div>' +
-      '<p class="muted small" style="margin-top:8px">Source : <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a> \u2014 ' +
-      '<a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener">ForexFactory</a></p>';
+      '<button class="btn primary" id="nw-apply">Appliquer les filtres</button>' +
+      '</div>' +
+      '<div id="nw-frame-wrap" class="cal-embed"></div>' +
+      '<p class="muted small" style="margin-top:8px">Source : <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a> \u2014 S\u00e9lectionnez une date avec le calendrier int\u00e9gr\u00e9 pour voir les semaines pass\u00e9es (backtest 2024, etc.)</p>';
+
+    function buildIframe() {
+      var ccys = [];
+      document.querySelectorAll('.nw-ccy').forEach(function(cb) {
+        if (cb.checked && ccyMap[cb.value]) ccys.push(ccyMap[cb.value]);
+      });
+      if (!ccys.length) { $('#nw-frame-wrap').innerHTML = '<div class="note">S\u00e9lectionnez au moins une devise.</div>'; return; }
+      var imp = '3';
+      document.querySelectorAll('input[name="nw-imp"]').forEach(function(r) { if (r.checked) imp = r.value; });
+
+      // Save filter preferences
+      var selCcys = [];
+      document.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked) selCcys.push(cb.value); });
+      DB.newsFilter = { currencies: selCcys, impact: imp };
+
+      var url = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
+        '&importance=' + imp +
+        '&features=datepicker,timezone' +
+        '&countries=' + ccys.join(',') +
+        '&calType=week&timeZone=55&lang=5';
+
+      $('#nw-frame-wrap').innerHTML = '<iframe src="' + url + '" width="100%" height="600" frameBorder="0" allowtransparency="true" style="border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px"></iframe>';
+    }
+
+    $('#nw-apply').onclick = buildIframe;
+    $('#nw-all').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); buildIframe(); };
+    $('#nw-none').onclick = function() { document.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = false; }); };
+
+    buildIframe();
   }
 
 
