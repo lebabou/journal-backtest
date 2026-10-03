@@ -10480,5 +10480,35 @@
    "If price fails to break the structure after a supposed expansion, but creates some liquidity, it's likely to reverse.",
    "Nb: Configure Killzone indicator 11 march"
   ]
+ },
+ "calculator": {
+  "accountSize": 5000,
+  "riskPercent": 0.06,
+  "instruments": [
+   {
+    "name": "NAS",
+    "pipValue": 20
+   },
+   {
+    "name": "US500",
+    "pipValue": 1
+   },
+   {
+    "name": "EURUSD",
+    "pipValue": 10
+   },
+   {
+    "name": "GBPUSD",
+    "pipValue": 10
+   },
+   {
+    "name": "XAUUSD",
+    "pipValue": 1
+   },
+   {
+    "name": "US30",
+    "pipValue": 10
+   }
+  ]
  }
 }
