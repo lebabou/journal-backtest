@@ -925,6 +925,75 @@
   }
 
 
+
+  /* ---------- TRADING (TradingView) ---------- */
+  var _tradingReady = false;
+
+  function renderTrading() {
+    var tc = document.getElementById('trading-container');
+    if (!tc) { tc = document.createElement('div'); tc.id = 'trading-container'; tc.hidden = true; document.body.insertBefore(tc, document.getElementById('overlay')); }
+
+    if (!_tradingReady) {
+      var saved = DB.tradingView || {};
+      var sym = saved.symbol || 'FX:EURUSD';
+      var intv = saved.interval || '60';
+      var theme = saved.theme || 'dark';
+
+      var symbols = ['FX:EURUSD','FX:GBPUSD','FX:GBPJPY','FX:USDJPY','FX:AUDUSD','FX:USDCHF','FX:NZDUSD','TVC:DXY','OANDA:XAUUSD','CAPITALCOM:US500','CAPITALCOM:US30','CAPITALCOM:USTEC'];
+      var intervals = [{v:'1',l:'1m'},{v:'5',l:'5m'},{v:'15',l:'15m'},{v:'60',l:'1H'},{v:'240',l:'4H'},{v:'D',l:'1D'},{v:'W',l:'1W'},{v:'M',l:'1M'}];
+
+      var symOpts = symbols.map(function(s) {
+        return '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s.replace('FX:','').replace('OANDA:','').replace('CAPITALCOM:','').replace('TVC:','') + '</option>';
+      }).join('');
+      var intvOpts = intervals.map(function(i) {
+        return '<option value="' + i.v + '"' + (i.v === intv ? ' selected' : '') + '>' + i.l + '</option>';
+      }).join('');
+
+      tc.innerHTML =
+        '<div style="max-width:1400px;margin:0 auto;padding:0 18px">' +
+        '<h1>\ud83d\udcca Trading</h1>' +
+        '<div class="bar" style="flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+        '<label>Symbol <select id="tv-sym" style="font-size:14px;padding:4px 8px">' + symOpts + '</select></label>' +
+        '<label>Interval <select id="tv-intv" style="font-size:14px;padding:4px 8px">' + intvOpts + '</select></label>' +
+        '<label>Theme <select id="tv-theme" style="font-size:14px;padding:4px 8px"><option value="dark"' + (theme === 'dark' ? ' selected' : '') + '>Dark</option><option value="light"' + (theme === 'light' ? ' selected' : '') + '>Light</option></select></label>' +
+        '<button class="btn primary" id="tv-apply">Apply</button>' +
+        '<a href="https://www.tradingview.com/chart/" target="_blank" rel="noopener" class="btn">\ud83d\udd17 Open TradingView (full account) \u2197</a>' +
+        '</div>' +
+        '<div id="tv-chart-wrap" class="cal-embed" style="height:calc(100vh - 200px);min-height:500px"></div>' +
+        '</div>';
+
+      function buildChart() {
+        var s = tc.querySelector('#tv-sym').value;
+        var i = tc.querySelector('#tv-intv').value;
+        var t = tc.querySelector('#tv-theme').value;
+        DB.tradingView = { symbol: s, interval: i, theme: t };
+        var url = 'https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]' +
+          '&symbol=' + encodeURIComponent(s) +
+          '&interval=' + i +
+          '&theme=' + t +
+          '&style=1&locale=en&withdateranges=1&showpopupbutton=1' +
+          '&allow_symbol_change=1&save_image=1&hide_side_toolbar=0' +
+          '&calendar=0&hotlist=0&studies=MASimple%409%2CMASimple%4021';
+        tc.querySelector('#tv-chart-wrap').innerHTML =
+          '<iframe src="' + url + '" style="width:100%;height:100%;border:1px solid var(--line);border-radius:var(--radius)" frameBorder="0" allowtransparency="true" allowfullscreen></iframe>';
+      }
+
+      tc.querySelector('#tv-apply').onclick = buildChart;
+      buildChart();
+      _tradingReady = true;
+    }
+
+    tc.hidden = false;
+    $('#main').hidden = true;
+  }
+
+  function hideTrading() {
+    var tc = document.getElementById('trading-container');
+    if (tc) tc.hidden = true;
+  }
+
+
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {
@@ -961,12 +1030,12 @@
   }
 
   /* ---------- routage ---------- */
-  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'plan', 'calc', 'data'];
+  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'calc', 'data'];
   function render() {
-    hideNews();
+    hideNews(); hideTrading();
     $('#dbname').textContent = (DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
-    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, data: renderData }[view] || renderDashboard)();
+    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, data: renderData }[view] || renderDashboard)();
   }
   function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = VIEWS.includes(v) ? v : 'dashboard'; render(); }
   window.addEventListener('hashchange', route);
