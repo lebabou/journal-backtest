@@ -629,92 +629,132 @@
 
 
 
+
   /* ---------- NEWS (calendrier économique) ---------- */
   function renderNews() {
+    var weekData = renderNews._week || getWeekDates(new Date());
+    renderNews._week = weekData;
+
     $('#main').innerHTML =
       '<h1>\ud83d\udcc5 Calendrier \u00e9conomique</h1>' +
-      '<div class="bar">' +
-      '<label>Filtrer par devise<select id="nw-ccy"><option value="">Toutes</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CHF">CHF</option><option value="AUD">AUD</option><option value="NZD">NZD</option><option value="CAD">CAD</option></select></label>' +
-      '<label>Filtrer par impact<select id="nw-imp"><option value="">Tous</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></label>' +
-      '<button class="btn primary" id="nw-fetch">Charger la semaine en cours</button>' +
-      '<a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener" class="btn">ForexFactory \u2197</a>' +
+      '<div class="bar" style="flex-wrap:wrap;gap:8px">' +
+      '<button class="btn" id="nw-prev">\u25c0 Sem. pr\u00e9c.</button>' +
+      '<button class="btn primary" id="nw-today">Cette semaine</button>' +
+      '<button class="btn" id="nw-next">Sem. suiv. \u25b6</button>' +
+      '<span class="muted" id="nw-range" style="padding:8px;font-weight:600">' + esc(weekData.label) + '</span>' +
+      '<label>Filtrer devise<select id="nw-ccy" style="margin-left:4px"><option value="">Toutes</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CHF">CHF</option><option value="AUD">AUD</option><option value="NZD">NZD</option><option value="CAD">CAD</option></select></label>' +
+      '<label>Impact<select id="nw-imp" style="margin-left:4px"><option value="">Tous</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></label>' +
       '</div>' +
-      '<div id="nw-result"><p class="muted">Cliquez sur \u00ab Charger \u00bb pour afficher le calendrier.</p></div>';
+      '<div id="nw-result"><p class="muted">\u23f3 Chargement\u2026</p></div>';
 
-    $('#nw-fetch').onclick = function() { fetchCalendar(); };
+    $('#nw-prev').onclick = function() { shiftWeek(-1); };
+    $('#nw-next').onclick = function() { shiftWeek(1); };
+    $('#nw-today').onclick = function() { renderNews._week = getWeekDates(new Date()); renderNews(); fetchCalendar(); };
     $('#nw-ccy').onchange = function() { if (window._calData) renderCalendarGrid(window._calData); };
     $('#nw-imp').onchange = function() { if (window._calData) renderCalendarGrid(window._calData); };
+
+    fetchCalendar();
+  }
+
+  function getWeekDates(date) {
+    var d = new Date(date);
+    var day = d.getDay(); var diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    var mon = new Date(d.setDate(diff)); mon.setHours(0,0,0,0);
+    var fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    var months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    var ffWeek = months[mon.getMonth()] + mon.getDate() + '.' + mon.getFullYear();
+    var label = mon.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + ' \u2013 ' + fri.toLocaleDateString('fr-FR', {day:'numeric',month:'short',year:'numeric'});
+    return { monday: mon, friday: fri, ffWeek: ffWeek, label: label };
+  }
+
+  function shiftWeek(dir) {
+    var w = renderNews._week;
+    var next = new Date(w.monday);
+    next.setDate(next.getDate() + dir * 7);
+    renderNews._week = getWeekDates(next);
+    renderNews();
+    fetchCalendar();
   }
 
   function fetchCalendar() {
     var el = $('#nw-result');
-    el.innerHTML = '<p class="muted">\u23f3 Chargement du calendrier\u2026</p>';
+    var w = renderNews._week;
+    el.innerHTML = '<p class="muted">\u23f3 Chargement du calendrier (' + esc(w.label) + ')\u2026</p>';
 
-    fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json')
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var events = Array.isArray(data) ? data : (data.events || []);
-        if (!events.length) {
-          el.innerHTML = '<div class="note">Aucun \u00e9v\u00e9nement. <a href="https://www.forexfactory.com/calendar" target="_blank">ForexFactory \u2197</a></div>';
-          return;
-        }
-        window._calData = events;
-        renderCalendarGrid(events);
-      })
-      .catch(function(err) {
-        el.innerHTML = '<div class="note" style="border-color:var(--loss)"><b>Erreur :</b> ' + esc(err.message) +
-          '<br>V\u00e9rifiez votre connexion internet.<br>' +
-          '<a href="https://www.forexfactory.com/calendar" target="_blank">Ouvrir ForexFactory \u2197</a></div>';
+    var apiUrl = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(apiUrl);
+    var ffUrl = 'https://www.forexfactory.com/calendar?week=' + w.ffWeek;
+
+    // Check if it's current week (API only has current week data)
+    var now = new Date(); var currentWeek = getWeekDates(now);
+    var isCurrentWeek = w.ffWeek === currentWeek.ffWeek;
+
+    if (!isCurrentWeek) {
+      showFallback(el, w, ffUrl, 'Le calendrier d\u00e9taill\u00e9 n\u2019est disponible que pour la semaine en cours. Pour les autres semaines, utilisez ForexFactory directement.');
+      return;
+    }
+
+    // Try direct fetch first, then proxy
+    fetch(apiUrl).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).catch(function() {
+      // Direct fetch failed (CORS), try proxy
+      return fetch(proxyUrl).then(function(r) {
+        if (!r.ok) throw new Error('Proxy HTTP ' + r.status);
+        return r.json();
       });
+    }).then(function(data) {
+      var events = Array.isArray(data) ? data : [];
+      if (!events.length) {
+        showFallback(el, w, ffUrl, 'Aucun \u00e9v\u00e9nement trouv\u00e9.');
+        return;
+      }
+      window._calData = events;
+      renderCalendarGrid(events);
+    }).catch(function(err) {
+      showFallback(el, w, ffUrl, 'Impossible de charger les donn\u00e9es : ' + err.message);
+    });
+  }
+
+  function showFallback(el, w, ffUrl, message) {
+    el.innerHTML =
+      '<div class="note" style="margin-bottom:14px">' + esc(message) + '</div>' +
+      '<a href="' + esc(ffUrl) + '" target="_blank" rel="noopener" class="btn primary" style="font-size:16px;padding:12px 24px;display:inline-block">' +
+      '\ud83d\udcc5 Ouvrir ForexFactory \u2014 ' + esc(w.label) + ' \u2197</a>' +
+      '<p class="muted small" style="margin-top:8px">Le lien ouvre le calendrier ForexFactory pour la semaine s\u00e9lectionn\u00e9e dans un nouvel onglet.</p>';
   }
 
   function renderCalendarGrid(events) {
     var ccyFilter = $('#nw-ccy') ? $('#nw-ccy').value : '';
     var impFilter = $('#nw-imp') ? $('#nw-imp').value : '';
-
-    // Group events by day
     var dayMap = {};
-    var dayOrder = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    var dayNames = { 0: 'Dimanche', 1: 'Lundi', 2: 'Mardi', 3: 'Mercredi', 4: 'Jeudi', 5: 'Vendredi', 6: 'Samedi' };
+    var dayNames = { 0:'Dimanche', 1:'Lundi', 2:'Mardi', 3:'Mercredi', 4:'Jeudi', 5:'Vendredi', 6:'Samedi' };
 
     events.forEach(function(ev) {
       var ccy = ev.country || ev.currency || '';
       var imp = (ev.impact || '').toLowerCase();
       if (ccyFilter && ccy.toUpperCase() !== ccyFilter) return;
       if (impFilter && imp !== impFilter.toLowerCase()) return;
-
-      var d;
-      if (ev.date) {
-        d = new Date(ev.date);
-        if (isNaN(d.getTime())) d = null;
-      }
+      var d = ev.date ? new Date(ev.date) : null;
+      if (d && isNaN(d.getTime())) d = null;
       var dateKey = d ? d.toISOString().slice(0, 10) : 'Unknown';
       var dayName = d ? dayNames[d.getDay()] : '?';
-      var timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', hour12: false }) : (ev.time || '');
-
+      var timeStr = d ? d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', hour12:false }) : (ev.time || '');
       if (!dayMap[dateKey]) dayMap[dateKey] = { label: dayName, date: dateKey, events: [] };
-      dayMap[dateKey].events.push({
-        time: timeStr,
-        currency: ccy,
-        impact: imp,
-        title: ev.title || ev.event || '',
-        forecast: ev.forecast || '',
-        previous: ev.previous || '',
-        actual: ev.actual || '',
-      });
+      dayMap[dateKey].events.push({ time: timeStr, currency: ccy, impact: imp, title: ev.title || ev.event || '', forecast: ev.forecast || '', previous: ev.previous || '', actual: ev.actual || '' });
     });
 
-    // Sort days
     var days = Object.values(dayMap).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
-
     var impactDot = function(imp) {
-      if (imp === 'high') return '<span style="color:#ef4444;font-size:16px" title="High impact">\u25cf</span>';
-      if (imp === 'medium') return '<span style="color:#f59e0b;font-size:16px" title="Medium impact">\u25cf</span>';
-      if (imp === 'low') return '<span style="color:#a3a3a3;font-size:14px" title="Low impact">\u25cf</span>';
-      if (imp === 'holiday') return '<span title="Holiday">\ud83c\udfd6</span>';
+      if (imp === 'high') return '<span style="color:#ef4444;font-size:16px" title="High">\u25cf</span>';
+      if (imp === 'medium') return '<span style="color:#f59e0b;font-size:16px" title="Medium">\u25cf</span>';
+      if (imp === 'low') return '<span style="color:#a3a3a3;font-size:14px" title="Low">\u25cf</span>';
       return '<span style="color:#d4d4d4">\u25cf</span>';
     };
 
+    var w = renderNews._week;
+    var ffUrl = 'https://www.forexfactory.com/calendar?week=' + w.ffWeek;
     var html = '<div class="cal-grid">';
     days.forEach(function(day) {
       var isToday = day.date === new Date().toISOString().slice(0, 10);
@@ -736,9 +776,10 @@
       html += '</div>';
     });
     html += '</div>';
-    html += '<p class="muted small" style="margin-top:8px">' + events.length + ' \u00e9v\u00e9nement(s) \u2014 Source : ForexFactory via nfs.faireconomy.media</p>';
+    html += '<p class="muted small" style="margin-top:8px">' + events.length + ' \u00e9v\u00e9nement(s) \u2014 <a href="' + esc(ffUrl) + '" target="_blank" rel="noopener">Voir sur ForexFactory \u2197</a></p>';
     $('#nw-result').innerHTML = html;
   }
+
 
 
   /* ---------- TRADING PLAN ---------- */
