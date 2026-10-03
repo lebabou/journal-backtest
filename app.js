@@ -22,16 +22,79 @@
   /* ---------- persistance ---------- */
   function banner(msg) { const b = $('#banner'); b.hidden = !msg; b.textContent = msg || ''; }
   function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, ms || 2200); }
+  var FILE_NAME = 'journal-backtest.json';
   async function load() {
+    // Initialize Google Drive connection
+    Drive.init({
+      clientId: '581487785097-euvn52u9tlbduie8mpsmmf6sanbcfsk2.apps.googleusercontent.com',
+      fileName: FILE_NAME,
+      onAuthChange: function(ok, err) {
+        updateAuthUI();
+        if (ok) load().then(render);
+        if (err) banner('Erreur de connexion : ' + err);
+      }
+    });
     try {
-      const r = await fetch('/api/db', { cache: 'no-store' });
-      if (!r.ok) throw new Error((await r.json()).error || r.status);
-      DB = await r.json();
-      DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
-      banner(''); LAST_GOOD = JSON.stringify(DB);
-    } catch (e) {
-      banner('Impossible de charger journal.json. Lancez l\'application avec « python server.py » (ne pas ouvrir index.html directement). Détail : ' + e.message);
+      // 1. Try Google Drive if signed in
+      if (Drive.isSignedIn()) {
+        var result = await Drive.load(null);
+        if (result.db) {
+          DB = result.db;
+          DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+          banner(''); LAST_GOOD = JSON.stringify(DB);
+          if (result.source === 'created') toast('Fichier cr\u00e9\u00e9 sur Google Drive');
+          updateAuthUI();
+          return;
+        }
+      }
+      // 2. Try local cache
+      var cached = Drive.getCached();
+      if (cached && cached.trades && cached.trades.length) {
+        DB = cached;
+        DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+        banner(Drive.isSignedIn() ? '' : 'Mode hors connexion. Connectez-vous avec Google pour synchroniser.');
+        LAST_GOOD = JSON.stringify(DB);
+        updateAuthUI();
+        return;
+      }
+      // 3. Fetch the embedded journal.json from the same folder
+      try {
+        var r = await fetch('journal.json');
+        if (r.ok) {
+          DB = await r.json();
+          DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+          LAST_GOOD = JSON.stringify(DB);
+          // Cache it locally
+          try { localStorage.setItem('drive_cache_' + FILE_NAME, JSON.stringify(DB)); } catch(e2) {}
+          banner(Drive.isSignedIn() ? '' : 'Donn\u00e9es charg\u00e9es. Connectez-vous avec Google pour sauvegarder vos modifications.');
+          updateAuthUI();
+          return;
+        }
+      } catch(e) {}
+      // 4. Empty fallback
       DB = { meta: {}, lists: {}, trades: [], reviews: [] };
+      banner('Connectez-vous avec Google pour charger vos donn\u00e9es.');
+    } catch (e) {
+      banner('Erreur : ' + e.message);
+      DB = Drive.getCached() || { meta: {}, lists: {}, trades: [], reviews: [] };
+      DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+    }
+    updateAuthUI();
+  }
+  function updateAuthUI() {
+    var btn = document.getElementById('auth-btn');
+    var info = document.getElementById('auth-info');
+    if (!btn) return;
+    if (Drive.isSignedIn()) {
+      btn.textContent = 'D\u00e9connexion';
+      btn.onclick = function() { Drive.signOut(); };
+      btn.className = 'btn';
+      if (info) info.textContent = '\u2601 Google Drive';
+    } else {
+      btn.textContent = 'Connexion Google';
+      btn.onclick = function() { Drive.signIn(); };
+      btn.className = 'btn primary';
+      if (info) info.textContent = '';
     }
   }
   let LAST_GOOD = null;
@@ -790,7 +853,7 @@
     const nShots = DB.trades.reduce((a, t) => a + SLOTS.reduce((b, [k]) => b + ((t.screens || {})[k] || []).length, 0), 0);
     $('#main').innerHTML = `
       <h1>Données</h1>
-      <div class="card"><p><b>${DB.trades.length}</b> trades · <b>${DB.reviews.length}</b> revue(s) · <b>${nShots}</b> lien(s) de capture · stockés dans <code>journal.json</code> (même dossier que <code>server.py</code>). Une sauvegarde datée est créée automatiquement dans <code>backups/</code> avant la première modification de chaque jour (30 conservées).</p>
+      <div class="card"><p><b>${DB.trades.length}</b> trades · <b>${DB.reviews.length}</b> revue(s) · <b>${nShots}</b> lien(s) de capture · stockés dans <code>journal-backtest.json</code> sur votre Google Drive personnel. Les données sont aussi cachées localement dans le navigateur pour un accès hors connexion.</p>
         <div class="bar"><button class="btn" id="x-json">Exporter JSON</button><button class="btn" id="x-csv">Exporter CSV (Excel)</button><label style="flex-direction:row;align-items:center;gap:8px"><span class="btn" style="pointer-events:none">Importer un JSON…</span><input type="file" id="x-imp" accept=".json,application/json"></label></div>
         <p class="muted small">L'import REMPLACE tout le journal actuel (la sauvegarde du jour est conservée).</p></div>
       <h2>Listes proposées dans le formulaire</h2>
