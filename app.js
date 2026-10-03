@@ -630,154 +630,18 @@
 
 
 
+
   /* ---------- NEWS (calendrier économique) ---------- */
   function renderNews() {
-    var weekData = renderNews._week || getWeekDates(new Date());
-    renderNews._week = weekData;
-
     $('#main').innerHTML =
       '<h1>\ud83d\udcc5 Calendrier \u00e9conomique</h1>' +
-      '<div class="bar" style="flex-wrap:wrap;gap:8px">' +
-      '<button class="btn" id="nw-prev">\u25c0 Sem. pr\u00e9c.</button>' +
-      '<button class="btn primary" id="nw-today">Cette semaine</button>' +
-      '<button class="btn" id="nw-next">Sem. suiv. \u25b6</button>' +
-      '<span class="muted" id="nw-range" style="padding:8px;font-weight:600">' + esc(weekData.label) + '</span>' +
-      '<label>Filtrer devise<select id="nw-ccy" style="margin-left:4px"><option value="">Toutes</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="JPY">JPY</option><option value="CHF">CHF</option><option value="AUD">AUD</option><option value="NZD">NZD</option><option value="CAD">CAD</option></select></label>' +
-      '<label>Impact<select id="nw-imp" style="margin-left:4px"><option value="">Tous</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></label>' +
+      '<p class="muted small" style="margin-bottom:12px">S\u00e9lectionnez n\u2019importe quelle semaine avec le s\u00e9lecteur de date int\u00e9gr\u00e9. Donn\u00e9es historiques disponibles (2024 et ant\u00e9rieures).</p>' +
+      '<div class="cal-embed">' +
+      '<iframe id="nw-iframe" src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&importance=1,2,3&features=datepicker,timezone&countries=5,22,17,25,34,72,6,37,26,12,35,110,43,4,36&calType=week&timeZone=55&lang=5" ' +
+      'width="100%" height="600" frameBorder="0" allowtransparency="true" marginwidth="0" marginheight="0" style="border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)"></iframe>' +
       '</div>' +
-      '<div id="nw-result"><p class="muted">\u23f3 Chargement\u2026</p></div>';
-
-    $('#nw-prev').onclick = function() { shiftWeek(-1); };
-    $('#nw-next').onclick = function() { shiftWeek(1); };
-    $('#nw-today').onclick = function() { renderNews._week = getWeekDates(new Date()); renderNews(); fetchCalendar(); };
-    $('#nw-ccy').onchange = function() { if (window._calData) renderCalendarGrid(window._calData); };
-    $('#nw-imp').onchange = function() { if (window._calData) renderCalendarGrid(window._calData); };
-
-    fetchCalendar();
-  }
-
-  function getWeekDates(date) {
-    var d = new Date(date);
-    var day = d.getDay(); var diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    var mon = new Date(d.setDate(diff)); mon.setHours(0,0,0,0);
-    var fri = new Date(mon); fri.setDate(mon.getDate() + 4);
-    var months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-    var ffWeek = months[mon.getMonth()] + mon.getDate() + '.' + mon.getFullYear();
-    var label = mon.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + ' \u2013 ' + fri.toLocaleDateString('fr-FR', {day:'numeric',month:'short',year:'numeric'});
-    return { monday: mon, friday: fri, ffWeek: ffWeek, label: label };
-  }
-
-  function shiftWeek(dir) {
-    var w = renderNews._week;
-    var next = new Date(w.monday);
-    next.setDate(next.getDate() + dir * 7);
-    renderNews._week = getWeekDates(next);
-    renderNews();
-    fetchCalendar();
-  }
-
-  function fetchCalendar() {
-    var el = $('#nw-result');
-    var w = renderNews._week;
-    el.innerHTML = '<p class="muted">\u23f3 Chargement du calendrier (' + esc(w.label) + ')\u2026</p>';
-
-    var apiUrl = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
-    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(apiUrl);
-    var ffUrl = 'https://www.forexfactory.com/calendar?week=' + w.ffWeek;
-
-    // Check if it's current week (API only has current week data)
-    var now = new Date(); var currentWeek = getWeekDates(now);
-    var isCurrentWeek = w.ffWeek === currentWeek.ffWeek;
-
-    if (!isCurrentWeek) {
-      showFallback(el, w, ffUrl, 'Le calendrier d\u00e9taill\u00e9 n\u2019est disponible que pour la semaine en cours. Pour les autres semaines, utilisez ForexFactory directement.');
-      return;
-    }
-
-    // Try direct fetch first, then proxy
-    fetch(apiUrl).then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).catch(function() {
-      // Direct fetch failed (CORS), try proxy
-      return fetch(proxyUrl).then(function(r) {
-        if (!r.ok) throw new Error('Proxy HTTP ' + r.status);
-        return r.json();
-      });
-    }).then(function(data) {
-      var events = Array.isArray(data) ? data : [];
-      if (!events.length) {
-        showFallback(el, w, ffUrl, 'Aucun \u00e9v\u00e9nement trouv\u00e9.');
-        return;
-      }
-      window._calData = events;
-      renderCalendarGrid(events);
-    }).catch(function(err) {
-      showFallback(el, w, ffUrl, 'Impossible de charger les donn\u00e9es : ' + err.message);
-    });
-  }
-
-  function showFallback(el, w, ffUrl, message) {
-    el.innerHTML =
-      '<div class="note" style="margin-bottom:14px">' + esc(message) + '</div>' +
-      '<a href="' + esc(ffUrl) + '" target="_blank" rel="noopener" class="btn primary" style="font-size:16px;padding:12px 24px;display:inline-block">' +
-      '\ud83d\udcc5 Ouvrir ForexFactory \u2014 ' + esc(w.label) + ' \u2197</a>' +
-      '<p class="muted small" style="margin-top:8px">Le lien ouvre le calendrier ForexFactory pour la semaine s\u00e9lectionn\u00e9e dans un nouvel onglet.</p>';
-  }
-
-  function renderCalendarGrid(events) {
-    var ccyFilter = $('#nw-ccy') ? $('#nw-ccy').value : '';
-    var impFilter = $('#nw-imp') ? $('#nw-imp').value : '';
-    var dayMap = {};
-    var dayNames = { 0:'Dimanche', 1:'Lundi', 2:'Mardi', 3:'Mercredi', 4:'Jeudi', 5:'Vendredi', 6:'Samedi' };
-
-    events.forEach(function(ev) {
-      var ccy = ev.country || ev.currency || '';
-      var imp = (ev.impact || '').toLowerCase();
-      if (ccyFilter && ccy.toUpperCase() !== ccyFilter) return;
-      if (impFilter && imp !== impFilter.toLowerCase()) return;
-      var d = ev.date ? new Date(ev.date) : null;
-      if (d && isNaN(d.getTime())) d = null;
-      var dateKey = d ? d.toISOString().slice(0, 10) : 'Unknown';
-      var dayName = d ? dayNames[d.getDay()] : '?';
-      var timeStr = d ? d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', hour12:false }) : (ev.time || '');
-      if (!dayMap[dateKey]) dayMap[dateKey] = { label: dayName, date: dateKey, events: [] };
-      dayMap[dateKey].events.push({ time: timeStr, currency: ccy, impact: imp, title: ev.title || ev.event || '', forecast: ev.forecast || '', previous: ev.previous || '', actual: ev.actual || '' });
-    });
-
-    var days = Object.values(dayMap).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
-    var impactDot = function(imp) {
-      if (imp === 'high') return '<span style="color:#ef4444;font-size:16px" title="High">\u25cf</span>';
-      if (imp === 'medium') return '<span style="color:#f59e0b;font-size:16px" title="Medium">\u25cf</span>';
-      if (imp === 'low') return '<span style="color:#a3a3a3;font-size:14px" title="Low">\u25cf</span>';
-      return '<span style="color:#d4d4d4">\u25cf</span>';
-    };
-
-    var w = renderNews._week;
-    var ffUrl = 'https://www.forexfactory.com/calendar?week=' + w.ffWeek;
-    var html = '<div class="cal-grid">';
-    days.forEach(function(day) {
-      var isToday = day.date === new Date().toISOString().slice(0, 10);
-      html += '<div class="cal-day' + (isToday ? ' cal-today' : '') + '">';
-      html += '<div class="cal-day-header">' + esc(day.label) + '<span class="cal-date">' + esc(day.date) + '</span></div>';
-      day.events.sort(function(a, b) { return (a.time || '99:99') < (b.time || '99:99') ? -1 : 1; });
-      day.events.forEach(function(ev) {
-        var impClass = ev.impact === 'high' ? 'cal-high' : ev.impact === 'medium' ? 'cal-med' : '';
-        html += '<div class="cal-event ' + impClass + '">' +
-          '<div class="cal-event-head">' + impactDot(ev.impact) + ' <b>' + esc(ev.currency) + '</b> <span class="cal-time">' + esc(ev.time) + '</span></div>' +
-          '<div class="cal-event-title">' + esc(ev.title) + '</div>' +
-          '<div class="cal-event-data">';
-        if (ev.actual) html += '<span class="cal-actual">R\u00e9el: <b>' + esc(ev.actual) + '</b></span> ';
-        if (ev.forecast) html += '<span>Pr\u00e9v: ' + esc(ev.forecast) + '</span> ';
-        if (ev.previous) html += '<span>Pr\u00e9c: ' + esc(ev.previous) + '</span>';
-        html += '</div></div>';
-      });
-      if (!day.events.length) html += '<p class="muted small" style="padding:8px">Aucun \u00e9v\u00e9nement</p>';
-      html += '</div>';
-    });
-    html += '</div>';
-    html += '<p class="muted small" style="margin-top:8px">' + events.length + ' \u00e9v\u00e9nement(s) \u2014 <a href="' + esc(ffUrl) + '" target="_blank" rel="noopener">Voir sur ForexFactory \u2197</a></p>';
-    $('#nw-result').innerHTML = html;
+      '<p class="muted small" style="margin-top:8px">Source : <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a> \u2014 ' +
+      '<a href="https://www.forexfactory.com/calendar" target="_blank" rel="noopener">ForexFactory</a></p>';
   }
 
 

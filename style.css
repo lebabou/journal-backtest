@@ -116,3 +116,7 @@ tr.low td{opacity:.5}
 .calc-result{background:var(--accent);color:#fff;border-radius:var(--radius);padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-height:80px}
 .calc-result-label{font-size:11px;text-transform:uppercase;opacity:.8;margin-bottom:4px}
 .calc-result-value{font-size:32px;font-weight:700}
+
+/* News embed */
+.cal-embed{width:100%;overflow:hidden;border-radius:var(--radius)}
+.cal-embed iframe{display:block;min-height:500px}
