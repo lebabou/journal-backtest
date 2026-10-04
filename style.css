@@ -138,3 +138,18 @@ tr.low td{opacity:.5}
 .gr-pill-target{background:rgba(59,130,246,.12);color:#3b82f6}
 .gr-pill-news{background:rgba(239,68,68,.2);color:#ef4444;animation:grpulse 1s infinite;font-weight:700}
 @keyframes grpulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+/* Discipline score */
+.disc-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:14px 0}
+.disc-header{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+.disc-gauge{width:80px;height:80px;border-radius:50%;background:conic-gradient(var(--clr) calc(var(--pct) * 3.6deg), var(--line) 0);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.disc-circle{width:64px;height:64px;border-radius:50%;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.disc-grade{font-size:22px;font-weight:800;line-height:1}
+.disc-pct{font-size:11px;color:var(--muted)}
+.disc-title{font-size:16px;font-weight:700}
+.disc-breakdown{display:flex;flex-direction:column;gap:6px}
+.disc-row{display:flex;align-items:center;gap:8px}
+.disc-name{font-size:12px;min-width:110px;color:var(--muted)}
+.disc-bar-bg{flex:1;height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:80px}
+.disc-bar-fill{height:100%;border-radius:4px;transition:width .4s}
+.disc-val{font-size:12px;font-weight:600;min-width:100px;text-align:right}

@@ -422,6 +422,142 @@
   }
 
 
+
+  /* ---------- DISCIPLINE SCORE ---------- */
+  function calcDiscipline(trades) {
+    if (!trades.length) return null;
+    var g = getGuardrails();
+    var kz = g.killzones || {};
+    var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
+    var kzNames = activeKz.map(function(s) { return s.name.toLowerCase(); });
+    var kzEnabled = g.enabled && kz.enabled !== false && kzNames.length > 0;
+
+    // 1. Plan-follow rate (25%)
+    var pfTotal = 0, pfYes = 0;
+    trades.forEach(function(t) {
+      if (t.planFollow === 'Yes' || t.planFollow === 'No') {
+        pfTotal++;
+        if (t.planFollow === 'Yes') pfYes++;
+      }
+    });
+    var pfRate = pfTotal > 0 ? pfYes / pfTotal : 1;
+
+    // 2. Non-FOMO rate (15%)
+    var fomoTotal = 0, fomoNo = 0;
+    trades.forEach(function(t) {
+      if (t.fomo === 'Yes' || t.fomo === 'No') {
+        fomoTotal++;
+        if (t.fomo === 'No') fomoNo++;
+      }
+    });
+    var fomoRate = fomoTotal > 0 ? fomoNo / fomoTotal : 1;
+
+    // 3. Setup grade A+ ou A (20%)
+    var gradeTotal = 0, gradeOk = 0;
+    trades.forEach(function(t) {
+      if (t._grade) {
+        gradeTotal++;
+        if (t._grade === 'A+' || t._grade === 'A') gradeOk++;
+      }
+    });
+    var gradeRate = gradeTotal > 0 ? gradeOk / gradeTotal : 1;
+
+    // 4. Killzone compliance (15%)
+    var kzTotal = 0, kzOk = 0;
+    if (kzEnabled) {
+      trades.forEach(function(t) {
+        if (t.session) {
+          kzTotal++;
+          if (kzNames.indexOf(t.session.toLowerCase()) >= 0) kzOk++;
+        }
+      });
+    }
+    var kzRate = kzEnabled ? (kzTotal > 0 ? kzOk / kzTotal : 1) : -1;
+
+    // 5. Max trades/day compliance (12.5%)
+    var dayMap = {};
+    trades.forEach(function(t) {
+      if (t.date && S.filled(t.ret)) {
+        if (!dayMap[t.date]) dayMap[t.date] = 0;
+        dayMap[t.date]++;
+      }
+    });
+    var days = Object.keys(dayMap);
+    var mtOk = 0;
+    days.forEach(function(d) { if (dayMap[d] <= g.maxTrades) mtOk++; });
+    var mtRate = days.length > 0 ? mtOk / days.length : 1;
+
+    // 6. Max loss/day compliance (12.5%)
+    var mlOk = 0;
+    days.forEach(function(d) {
+      var dayLosses = 0;
+      trades.forEach(function(t) {
+        if (t.date === d && S.filled(t.ret) && t.ret < 0) dayLosses += Number(t.ret);
+      });
+      if (dayLosses > g.maxLossR) mlOk++;
+    });
+    var mlRate = days.length > 0 ? mlOk / days.length : 1;
+
+    // Weighted score
+    var components;
+    if (kzRate >= 0) {
+      components = [
+        { name: 'Plan-follow', rate: pfRate, w: 0.25, detail: pfYes + '/' + pfTotal, icon: '\ud83d\udccb' },
+        { name: 'Setup grade (A/A+)', rate: gradeRate, w: 0.20, detail: gradeOk + '/' + gradeTotal, icon: '\u2b50' },
+        { name: 'Non-FOMO', rate: fomoRate, w: 0.15, detail: fomoNo + '/' + fomoTotal, icon: '\ud83e\udde0' },
+        { name: 'Killzones', rate: kzRate, w: 0.15, detail: kzOk + '/' + kzTotal, icon: '\u23f0' },
+        { name: 'Max trades/jour', rate: mtRate, w: 0.125, detail: mtOk + '/' + days.length + ' j', icon: '\ud83d\udcca' },
+        { name: 'Max loss/jour', rate: mlRate, w: 0.125, detail: mlOk + '/' + days.length + ' j', icon: '\ud83d\udee1' }
+      ];
+    } else {
+      components = [
+        { name: 'Plan-follow', rate: pfRate, w: 0.30, detail: pfYes + '/' + pfTotal, icon: '\ud83d\udccb' },
+        { name: 'Setup grade (A/A+)', rate: gradeRate, w: 0.25, detail: gradeOk + '/' + gradeTotal, icon: '\u2b50' },
+        { name: 'Non-FOMO', rate: fomoRate, w: 0.20, detail: fomoNo + '/' + fomoTotal, icon: '\ud83e\udde0' },
+        { name: 'Max trades/jour', rate: mtRate, w: 0.125, detail: mtOk + '/' + days.length + ' j', icon: '\ud83d\udcca' },
+        { name: 'Max loss/jour', rate: mlRate, w: 0.125, detail: mlOk + '/' + days.length + ' j', icon: '\ud83d\udee1' }
+      ];
+    }
+
+    var score = 0;
+    components.forEach(function(c) { score += c.rate * c.w; });
+
+    var grade;
+    if (score >= 0.90) grade = { letter: 'A+', color: '#22c55e' };
+    else if (score >= 0.80) grade = { letter: 'A', color: '#22c55e' };
+    else if (score >= 0.70) grade = { letter: 'B', color: '#3b82f6' };
+    else if (score >= 0.60) grade = { letter: 'C', color: '#f59e0b' };
+    else if (score >= 0.50) grade = { letter: 'D', color: '#f97316' };
+    else grade = { letter: 'F', color: '#ef4444' };
+
+    return { score: score, grade: grade, components: components, days: days.length };
+  }
+
+  function disciplineHTML(trades, label) {
+    var d = calcDiscipline(trades);
+    if (!d) return '';
+    var pct = Math.round(d.score * 100);
+    var html = '<div class="disc-card">';
+    html += '<div class="disc-header">';
+    html += '<div class="disc-gauge" style="--pct:' + pct + ';--clr:' + d.grade.color + '">';
+    html += '<div class="disc-circle"><span class="disc-grade" style="color:' + d.grade.color + '">' + d.grade.letter + '</span><span class="disc-pct">' + pct + '%</span></div>';
+    html += '</div>';
+    html += '<div class="disc-title">Discipline Score' + (label ? '<br><span class="muted small">' + esc(label) + '</span>' : '') + '</div>';
+    html += '</div>';
+    html += '<div class="disc-breakdown">';
+    d.components.forEach(function(c) {
+      var cpct = Math.round(c.rate * 100);
+      var clr = cpct >= 80 ? '#22c55e' : cpct >= 60 ? '#f59e0b' : '#ef4444';
+      html += '<div class="disc-row"><span class="disc-name">' + (c.icon || '') + ' ' + esc(c.name) + '</span>';
+      html += '<div class="disc-bar-bg"><div class="disc-bar-fill" style="width:' + cpct + '%;background:' + clr + '"></div></div>';
+      html += '<span class="disc-val">' + cpct + '% <span class="muted">(' + c.detail + ')</span></span></div>';
+    });
+    html += '</div></div>';
+    return html;
+  }
+
+
+
   function renderDashboard() {
     const f = ui.dash;
     const all = enriched();
@@ -464,6 +600,7 @@
       <div class="kpis">${cards(sm)}</div>
       ${skipped ? `<div class="note"><b>${skipped} trade(s) sans entrée</b> (« No Entry », entrée vide ou risque = 0) ont un Return de 0 et sont comptés comme Breakeven, comme dans votre Excel. Ils réduisent mécaniquement le win rate et l'espérance : cochez « Exclure les trades sans entrée » pour mesurer uniquement les trades réellement pris.</div>` : ''}
       ${sm.n < 30 ? `<div class="note">Échantillon de ${sm.n} trade(s) : intervalles de confiance larges. Les sous-groupes de moins de 10 trades (lignes grisées) ne sont pas statistiquement fiables.</div>` : ''}
+      ${disciplineHTML(sel, '')}
       <h2>Fenêtre glissante : ${Math.min(win.n, +f.window || 20)} derniers trades de la sélection</h2>
       <div class="kpis">${cards(win)}</div>
       <h2>Courbes</h2>
