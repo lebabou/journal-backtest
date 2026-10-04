@@ -174,7 +174,15 @@
   /* ---------- DASHBOARD (performance de l'entrée CONSERVATIVE = colonnes Return d'origine) ---------- */
 
   /* ---------- GUARDRAILS ---------- */
-  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, enabled: true }; }
+  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, enabled: true, killzones: {
+      enabled: true,
+      sessions: [
+        { name: 'Asian', from: '03:00', to: '07:00', active: false },
+        { name: 'London', from: '09:00', to: '12:30', active: true },
+        { name: 'NY', from: '14:00', to: '17:00', active: true },
+        { name: 'London Close', from: '17:00', to: '19:00', active: false }
+      ]
+    }}; }
   function getGuardrails() { return Object.assign(defaultGuardrails(), DB.guardrails || {}); }
   function todayStats(dateStr) {
     var d = dateStr || new Date().toISOString().slice(0, 10);
@@ -203,17 +211,36 @@
     html += '<div class="gr-summary">' + r.st.n + ' trade(s) \u00b7 Net ' + sgn(r.st.net) + ' R \u00b7 Pertes ' + sgn(r.st.losses) + ' R</div></div>';
     return html;
   }
-  function guardrailConfirm(dateStr) {
+  function checkKillzone(session) {
+    var g = getGuardrails();
+    if (!g.enabled || !g.killzones || !g.killzones.enabled) return null;
+    var activeSessions = (g.killzones.sessions || []).filter(function(s) { return s.active; });
+    if (!activeSessions.length) return null;
+    // Check if the trade's session matches any active killzone
+    var sessionLower = (session || '').toLowerCase().trim();
+    var matched = activeSessions.some(function(kz) {
+      return sessionLower === kz.name.toLowerCase() ||
+             sessionLower.indexOf(kz.name.toLowerCase()) >= 0 ||
+             kz.name.toLowerCase().indexOf(sessionLower) >= 0;
+    });
+    if (matched) return null;
+    return 'Trade en dehors des killzones actives (' + activeSessions.map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + '). Session du trade : ' + (session || 'non renseign\u00e9e');
+  }
+  function guardrailConfirm(dateStr, session) {
     var r = guardrailAlerts(dateStr, true);
     var danger = r.alerts.filter(function(a) { return a.level === 'danger'; });
-    if (!danger.length) return true;
-    var msg = '\u26a0\ufe0f GUARDRAIL ATTEINT \u26a0\ufe0f\n\n';
-    danger.forEach(function(a) { msg += a.msg + '\n'; });
+    var kzWarn = checkKillzone(session);
+    if (!danger.length && !kzWarn) return true;
+    var msg = '\u26a0\ufe0f GUARDRAIL \u26a0\ufe0f\n\n';
+    danger.forEach(function(a) { msg += '\ud83d\udeab ' + a.msg + '\n'; });
+    if (kzWarn) msg += '\u23f0 ' + kzWarn + '\n';
     msg += '\nVoulez-vous quand m\u00eame enregistrer ce trade ?';
     return confirm(msg);
   }
   function renderGuardrails() {
     var g = getGuardrails(), st = todayStats();
+    var kz = g.killzones || defaultGuardrails().killzones;
+    var kzSessions = kz.sessions || defaultGuardrails().killzones.sessions;
     var r = guardrailAlerts();
     var bannerHTML = guardrailBanner();
     if (!bannerHTML) bannerHTML = '<div class="note">Aucune alerte pour aujourd\'hui.</div>';
@@ -239,16 +266,32 @@
       '<label>Max trades / jour<input type="number" id="gr-maxTrades" min="1" value="' + g.maxTrades + '"></label>' +
       '<label>Max loss / jour (R)<input type="number" id="gr-maxLoss" step="0.5" value="' + g.maxLossR + '"></label>' +
       '<label>Daily target (R)<input type="number" id="gr-target" step="0.5" min="0" value="' + g.dailyTargetR + '"></label>' +
-      '</div><div class="actions" style="margin-top:10px"><button class="btn primary" id="gr-save">Enregistrer</button></div></div>' +
+      '</div></div>' +
+      '<div class="gr-settings" style="margin-top:14px"><h3>\u23f0 Killzones (fen\u00eatres de trading)</h3>' +
+      '<p class="muted small">S\u00e9lectionnez les sessions pendant lesquelles vous tradez. Un avertissement s\u2019affiche si vous enregistrez un trade en dehors de ces fen\u00eatres.</p>' +
+      '<div style="margin:10px 0"><label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="kz-enabled" ' + (kz.enabled !== false ? 'checked' : '') + '> Activer le contr\u00f4le des killzones</label></div>' +
+      '<div id="kz-sessions">' + kzSessions.map(function(sess, i) {
+        return '<div class="gr-row" style="margin-bottom:8px;padding:8px;border-radius:6px;background:' + (sess.active ? 'rgba(59,130,246,.08)' : 'transparent') + '">' +
+          '<label style="flex-direction:row;align-items:center;gap:6px;min-width:160px"><input type="checkbox" class="kz-active" data-i="' + i + '"' + (sess.active ? ' checked' : '') + '> <b>' + esc(sess.name) + '</b></label>' +
+          '<label>From<input type="text" class="kz-from" data-i="' + i + '" value="' + esc(sess.from) + '" style="width:70px" placeholder="09:00"></label>' +
+          '<label>To<input type="text" class="kz-to" data-i="' + i + '" value="' + esc(sess.to) + '" style="width:70px" placeholder="12:30"></label>' +
+          '</div>';
+      }).join('') + '</div>' +
+      '<div class="actions" style="margin-top:10px"><button class="btn primary" id="gr-save">Enregistrer</button></div></div>' +
       '<h2>Statut du jour (' + st.date + ')</h2>' + bannerHTML +
       '<div class="kpis"><div class="kpi"><div class="l">Trades aujourd\u2019hui</div><div class="v ' + (st.n >= g.maxTrades ? 'neg' : '') + '">' + st.n + ' / ' + g.maxTrades + '</div></div>' +
       '<div class="kpi"><div class="l">Pertes du jour</div><div class="v ' + (st.losses <= g.maxLossR ? 'neg' : '') + '">' + sgn(st.losses) + ' R</div></div>' +
       '<div class="kpi"><div class="l">Net du jour</div><div class="v ' + cls(st.net) + '">' + sgn(st.net) + ' R</div></div>' +
+      '<div class="kpi"><div class="l">Killzones actives</div><div class="v">' + (kz.enabled !== false ? kzSessions.filter(function(s){return s.active}).map(function(s){return s.name}).join(', ') || 'Aucune' : 'D\u00e9sactiv\u00e9') + '</div></div>' +
       '<div class="kpi"><div class="l">Daily target</div><div class="v ' + (st.net >= g.dailyTargetR ? 'pos' : '') + '">+' + num(g.dailyTargetR) + ' R</div></div></div>' +
       '<h2>Historique des 7 derniers jours de trading</h2>' +
       '<div class="twrap" style="max-height:none"><table><thead><tr><th>Date</th><th class="num">Trades</th><th class="num">Wins</th><th class="num">Losses</th><th class="num">Net R</th><th class="num">Pertes R</th><th>Statut</th></tr></thead><tbody>' + days.join('') + '</tbody></table></div>';
     $('#gr-save').onclick = async function() {
-      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, dailyTargetR: +$('#gr-target').value || 3 };
+      var kzSess = [];
+      document.querySelectorAll('.kz-active').forEach(function(cb, i) {
+        kzSess.push({ name: kzSessions[i].name, from: document.querySelectorAll('.kz-from')[i].value || kzSessions[i].from, to: document.querySelectorAll('.kz-to')[i].value || kzSessions[i].to, active: cb.checked });
+      });
+      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, dailyTargetR: +$('#gr-target').value || 3, killzones: { enabled: $('#kz-enabled').checked, sessions: kzSess } };
       if (await save('Guardrails enregistr\u00e9s')) renderGuardrails();
     };
   }
@@ -472,7 +515,7 @@
       const v = id => $('#f-' + id).value.trim();
       const numOrNull = id => { const x = v(id); return x === '' ? null : +x; };
       if (!v('date')) return alert('La date est obligatoire.');
-      if (isNew && !guardrailConfirm(v('date'))) return;
+      if (isNew && !guardrailConfirm(v('date'), v('session'))) return;
       if (!v('instrument')) return alert('L\'instrument est obligatoire.');
       for (const id of ['ret', 'aret', 'risk', 'arisk']) { const x = v(id); if (x !== '' && !Number.isFinite(+x)) return alert('Valeur numérique invalide (' + id + ').'); }
       const urls = k => v('s-' + k).split(/[\s,;]+/).filter(u => /^(https?:\/\/|data:image\/)/.test(u));
