@@ -86,7 +86,7 @@
       DB = Drive.getCached() || { meta: {}, lists: {}, trades: [], reviews: [] };
       DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
     }
-    updateAuthUI();
+    updateAuthUI(); updateStatusBar(); initNewsAlerts(); requestNotifPermission();
   }
   function updateAuthUI() {
     var btn = document.getElementById('auth-btn');
@@ -110,7 +110,7 @@
       await Drive.save(DB);
       LAST_GOOD = JSON.stringify(DB);
       banner('');
-      toast(okMsg || 'Enregistr\u00e9 \u2601');
+      toast(okMsg || 'Enregistr\u00e9 \u2601'); updateStatusBar();
       return true;
     } catch (e) {
       if (LAST_GOOD) DB = JSON.parse(LAST_GOOD);
@@ -172,6 +172,121 @@
   }
 
   /* ---------- DASHBOARD (performance de l'entrée CONSERVATIVE = colonnes Return d'origine) ---------- */
+
+
+  /* ---------- STATUS BAR (guardrails + news alerts) ---------- */
+  function updateStatusBar() {
+    var bar = document.getElementById('gr-status-bar');
+    if (!bar) return;
+    var g = getGuardrails();
+    if (!g.enabled) { bar.innerHTML = ''; return; }
+    var st = todayStats();
+    var kz = g.killzones || {};
+    var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
+
+    var tradesCls = st.n >= g.maxTrades ? 'gr-pill-danger' : st.n >= g.maxTrades - 1 ? 'gr-pill-warn' : 'gr-pill-ok';
+    var lossCls = st.losses <= g.maxLossR ? 'gr-pill-danger' : (g.maxLossR !== 0 && st.losses <= g.maxLossR * 0.7) ? 'gr-pill-warn' : 'gr-pill-ok';
+    var netCls = st.net >= g.dailyTargetR ? 'gr-pill-target' : st.net > 0 ? 'gr-pill-ok' : st.net < 0 ? 'gr-pill-warn' : '';
+
+    var html = '<span class="gr-pill ' + tradesCls + '" title="Trades / Max">\ud83d\udcca ' + st.n + '/' + g.maxTrades + '</span>';
+    html += '<span class="gr-pill ' + netCls + '" title="Net R du jour">Net ' + sgn(st.net) + 'R</span>';
+    html += '<span class="gr-pill ' + lossCls + '" title="Pertes / Max loss">Loss ' + sgn(st.losses) + '/' + sgn(g.maxLossR) + '</span>';
+    if (st.net >= g.dailyTargetR) html += '<span class="gr-pill gr-pill-target" title="Target atteint">\ud83c\udfaf</span>';
+    if (st.losses <= g.maxLossR) html += '<span class="gr-pill gr-pill-danger" title="Max loss atteint">\ud83d\udd34</span>';
+
+    // News alert countdown
+    var newsAlert = document.getElementById('news-alert-pill');
+    if (newsAlert) html += newsAlert.outerHTML;
+
+    bar.innerHTML = html;
+  }
+
+  /* ---------- NEWS ALERTS (10mn before High Impact) ---------- */
+  var _newsTimers = [];
+  var _newsAlertMsg = '';
+
+  function initNewsAlerts() {
+    // Clear existing timers
+    _newsTimers.forEach(function(t) { clearTimeout(t); });
+    _newsTimers = [];
+
+    var saved = DB.newsFilter || {};
+    var currencies = saved.currencies || ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
+
+    // Try to fetch calendar data
+    var apiUrl = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(apiUrl);
+
+    fetch(apiUrl).catch(function() { return fetch(proxyUrl); })
+      .then(function(r) { return r.json(); })
+      .then(function(events) {
+        if (!Array.isArray(events)) return;
+        var now = Date.now();
+        var ALERT_BEFORE = 10 * 60 * 1000; // 10 minutes
+
+        events.forEach(function(ev) {
+          if (!ev.date || (ev.impact || '').toLowerCase() !== 'high') return;
+          var ccy = (ev.country || ev.currency || '').toUpperCase();
+          if (currencies.indexOf(ccy) < 0) return;
+
+          var eventTime = new Date(ev.date).getTime();
+          if (isNaN(eventTime)) return;
+          var alertTime = eventTime - ALERT_BEFORE;
+          var delay = alertTime - now;
+
+          if (delay > 0 && delay < 24 * 60 * 60 * 1000) {
+            _newsTimers.push(setTimeout(function() {
+              showNewsAlert(ev, ccy, eventTime);
+            }, delay));
+          }
+          // Also check if we're currently within the 10-minute window
+          if (now >= alertTime && now < eventTime) {
+            showNewsAlert(ev, ccy, eventTime);
+          }
+        });
+      }).catch(function() {});
+  }
+
+  function showNewsAlert(ev, ccy, eventTime) {
+    var mins = Math.max(0, Math.round((eventTime - Date.now()) / 60000));
+    var title = ev.title || ev.event || 'High Impact News';
+    _newsAlertMsg = '\ud83d\udea8 ' + ccy + ' ' + title + ' dans ' + mins + 'mn';
+
+    // Update status bar
+    var bar = document.getElementById('gr-status-bar');
+    if (bar) {
+      var pill = bar.querySelector('#news-alert-pill');
+      if (!pill) {
+        pill = document.createElement('span');
+        pill.id = 'news-alert-pill';
+        pill.className = 'gr-pill gr-pill-news';
+        bar.appendChild(pill);
+      }
+      pill.textContent = _newsAlertMsg;
+      pill.title = title + ' (' + ccy + ') - ' + new Date(eventTime).toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+    }
+
+    // Browser notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('\ud83d\udea8 High Impact News dans ' + mins + 'mn', {
+        body: ccy + ' - ' + title,
+        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">\ud83d\udea8</text></svg>',
+        tag: 'news-' + ccy + '-' + eventTime
+      });
+    }
+
+    // Also show a toast in the app
+    if (typeof toast === 'function') toast('\ud83d\udea8 ' + ccy + ': ' + title + ' dans ' + mins + 'mn', 8000);
+  }
+
+  // Request notification permission on first interaction
+  function requestNotifPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }
+
+
 
   /* ---------- GUARDRAILS ---------- */
   function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, enabled: true, killzones: {
@@ -1092,7 +1207,7 @@
   /* ---------- routage ---------- */
   const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'calc', 'data'];
   function render() {
-    hideNews(); hideTrading();
+    hideNews(); hideTrading(); updateStatusBar();
     $('#dbname').textContent = (DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
     ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, data: renderData }[view] || renderDashboard)();
