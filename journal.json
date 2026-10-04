@@ -10510,5 +10510,65 @@
     "pipValue": 10
    }
   ]
+ },
+ "notebook": {
+  "folders": [
+   "Ideas",
+   "Drafts",
+   "Playbook",
+   "Mindset"
+  ],
+  "notes": [
+   {
+    "id": "seed1",
+    "title": "2026 goals",
+    "icon": "🎯",
+    "folder": "Mindset",
+    "pinned": true,
+    "body": "# Objectifs 2026\n\n- 200 trades A+ minimum\n- Max daily loss: 2R\n- Weekly review tous les dimanches\n- Discipline score > 85%\n\n## Process over outcome\n- [ ] Pre-market routine tous les jours\n- [ ] Journal chaque trade dans l'heure\n- [ ] Review hebdo sans exception",
+    "created": "2025-12-08T17:40:26.039255",
+    "updated": "2026-10-04T15:40:26.039255"
+   },
+   {
+    "id": "seed2",
+    "title": "Pre-Market Thesis",
+    "icon": "📋",
+    "folder": "Playbook",
+    "pinned": false,
+    "body": "# Pre-Market Thesis Template\n\n## 1. HTF Plan\n- Pre 4H Trend:\n- Mark out HTF POIs (4H):\n- Buy in 4H Discount / Sell in 4H Premium\n- Define 4H POI\n- SBD Zones, Flip Zones, Order Blocks\n\n## 2. LTF Execution\n- 4H POI Mitigation\n- 15m LQ Sweep (V Shape Reaction)\n- Market Shift\n- Set entry limit order on edge of POI\n\n## 3. Invalidation\n- Si structure cassée dans le sens opposé\n- Si pas de réaction au POI dans 2 bougies",
+    "created": "2026-03-18T17:40:26.039255",
+    "updated": "2026-09-29T17:40:26.039255"
+   },
+   {
+    "id": "seed3",
+    "title": "Entry Model",
+    "icon": "🎯",
+    "folder": "Playbook",
+    "pinned": false,
+    "body": "# Entry Model\n\n## Conditions obligatoires\n- [ ] Bias alignement HTF\n- [ ] High probability POI\n- [ ] Pendant une killzone active\n- [ ] LQ sweep + Market shift\n- [ ] RR asymétrique (min 1:3)\n\n## Confirmation\n1. Prix atteint le POI\n2. Sweep de liquidité (wick)\n3. Market structure shift sur LTF\n4. Entrée sur retest",
+    "created": "2026-04-07T17:40:26.039255",
+    "updated": "2026-09-22T17:40:26.039255"
+   },
+   {
+    "id": "seed4",
+    "title": "Emotional Mapping",
+    "icon": "🧠",
+    "folder": "Mindset",
+    "pinned": false,
+    "body": "# Emotional Mapping Journal\n\n## Avant le trade\nQue je ressens : \nNiveau de conviction (1-10) : \n\n## Pendant\nEnvie de déplacer le SL ? \nEnvie de prendre les profits tôt ? \n\n## Après\nSatisfait du process ? \nQu'est-ce que je referais différemment ? \n\n---\n**Rappel** : Les émotions sont des données, pas des ordres.",
+    "created": "2026-05-07T17:40:26.039255",
+    "updated": "2026-09-14T17:40:26.039255"
+   },
+   {
+    "id": "seed5",
+    "title": "Process",
+    "icon": "⚙️",
+    "folder": "Ideas",
+    "pinned": false,
+    "body": "Nouvelle règle : écrire la thèse avant l'ouverture du marché, pas d'intraday improvisé.\n\nSi je n'ai pas écrit mon plan avant 8h, je ne trade pas aujourd'hui.",
+    "created": "2026-10-02T17:40:26.039255",
+    "updated": "2026-10-04T14:40:26.039255"
+   }
+  ]
  }
 }
