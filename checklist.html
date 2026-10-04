@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1318">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Trading Checklist</title>
+<link rel="manifest" href="manifest-checklist.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f1318;--panel:#1a1f27;--line:#2a2f3a;--text:#e4e4e7;--muted:#71717a;--accent:#3b82f6;--green:#22c55e;--red:#ef4444}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:env(safe-area-inset-top,12px) 12px env(safe-area-inset-bottom,12px);min-height:100vh}
+h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
+.section{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.section-head{padding:10px 14px;font-weight:700;font-size:14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.section-head .count{font-size:12px;color:var(--muted);font-weight:400}
+.item{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:14px;line-height:1.4;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.item:last-child{border-bottom:none}
+.item:active{background:rgba(255,255,255,.03)}
+.item.done{color:var(--muted);text-decoration:line-through}
+.item input[type=checkbox]{margin-top:2px;min-width:18px;min-height:18px;accent-color:var(--green)}
+.notes{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:10px;padding:12px 14px}
+.notes h2{font-size:14px;margin-bottom:8px}
+.notes li{font-size:13px;margin-bottom:6px;line-height:1.4;color:var(--muted)}
+.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.btn{padding:8px 14px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel);color:var(--text);border:1px solid var(--line)}
+.btn:active{opacity:.7}
+.btn.green{background:var(--green);color:#000;border-color:var(--green)}
+.btn.red{background:var(--red);color:#fff;border-color:var(--red)}
+.progress{height:4px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden}
+.progress-fill{height:100%;background:var(--green);transition:width .3s}
+.empty{text-align:center;padding:40px 20px;color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>✅ Trading Checklist</h1>
+<div class="bar">
+  <button class="btn green" id="reset">Reset all</button>
+  <button class="btn" id="back" onclick="window.close()">Close</button>
+</div>
+<div class="progress"><div class="progress-fill" id="pbar"></div></div>
+<div id="app"><div class="empty">Loading trading plan...</div></div>
+
+<script>
+(function() {
+  'use strict';
+  var CACHE_KEYS = ['drive_cache_journal-backtest.json', 'drive_cache_journal-trading.json'];
+  var CHECK_KEY = 'checklist_state';
+  var plan = null;
+
+  // Load trading plan from localStorage (shared with main app)
+  function loadPlan() {
+    for (var i = 0; i < CACHE_KEYS.length; i++) {
+      try {
+        var db = JSON.parse(localStorage.getItem(CACHE_KEYS[i]));
+        if (db && db.tradingPlan && db.tradingPlan.sections && db.tradingPlan.sections.length) {
+          return db.tradingPlan;
+        }
+      } catch(e) {}
+    }
+    return null;
+  }
+  // Also try fetching journal.json if localStorage is empty
+  function loadPlanAsync(cb) {
+    var p = loadPlan();
+    if (p) return cb(p);
+    fetch('journal.json').then(function(r) { return r.json(); }).then(function(db) {
+      if (db && db.tradingPlan) cb(db.tradingPlan);
+      else cb(null);
+    }).catch(function() { cb(null); });
+  }
+
+  // Load/save check state
+  function loadChecks() {
+    try { return JSON.parse(localStorage.getItem(CHECK_KEY)) || {}; } catch(e) { return {}; }
+  }
+  function saveChecks(state) {
+    localStorage.setItem(CHECK_KEY, JSON.stringify(state));
+  }
+
+  function render() {
+    if (!plan) plan = loadPlan();
+    if (!plan) {
+      document.getElementById('app').innerHTML = '<div class="empty">No trading plan found.<br><br>Open your journal app first, go to the Trading Plan tab, and make sure you have sections saved. Then come back here.</div>';
+      return;
+    }
+    var checks = loadChecks();
+    var total = 0, done = 0;
+    var html = '';
+
+    plan.sections.forEach(function(sec, si) {
+      var secDone = 0;
+      var items = '';
+      sec.items.forEach(function(item, ii) {
+        var key = si + '-' + ii;
+        var checked = checks[key] || false;
+        total++;
+        if (checked) { done++; secDone++; }
+        items += '<label class="item' + (checked ? ' done' : '') + '">' +
+          '<input type="checkbox" data-key="' + key + '"' + (checked ? ' checked' : '') + '>' +
+          '<span>' + esc(item) + '</span></label>';
+      });
+      html += '<div class="section"><div class="section-head">' + esc(sec.title) +
+        '<span class="count">' + secDone + '/' + sec.items.length + '</span></div>' + items + '</div>';
+    });
+
+    if (plan.notes && plan.notes.length) {
+      html += '<div class="notes"><h2>\ud83d\udcdd Trading Notes</h2><ul>';
+      plan.notes.forEach(function(n) { html += '<li>' + esc(n) + '</li>'; });
+      html += '</ul></div>';
+    }
+
+    document.getElementById('app').innerHTML = html;
+    document.getElementById('pbar').style.width = (total ? (done / total * 100) : 0) + '%';
+
+    // Event listeners
+    document.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+      cb.onchange = function() {
+        var s = loadChecks();
+        s[cb.dataset.key] = cb.checked;
+        saveChecks(s);
+        render();
+      };
+    });
+  }
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  document.getElementById('reset').onclick = function() {
+    if (confirm('Reset all checkboxes?')) {
+      saveChecks({});
+      render();
+    }
+  };
+
+  loadPlanAsync(function(p) {
+    if (p) { plan = p; render(); }
+    else render();
+  });
+})();
+</script>
+</body>
+</html>

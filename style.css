@@ -127,3 +127,5 @@ tr.low td{opacity:.5}
 .nw-chip{display:inline-flex;align-items:center;gap:4px;font-size:13px;padding:4px 8px;border-radius:6px;background:var(--panel2);cursor:pointer;user-select:none}
 .nw-chip:hover{background:var(--line)}
 .nw-chip input{margin:0}
+
+#checklist-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;text-decoration:none;box-shadow:0 4px 12px rgba(0,0,0,.4);z-index:900;transition:transform .15s}#checklist-fab:active{transform:scale(.9)}
