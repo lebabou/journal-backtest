@@ -214,17 +214,21 @@
   function checkKillzone(session) {
     var g = getGuardrails();
     if (!g.enabled || !g.killzones || !g.killzones.enabled) return null;
-    var activeSessions = (g.killzones.sessions || []).filter(function(s) { return s.active; });
+    var allKz = g.killzones.sessions || [];
+    var activeSessions = allKz.filter(function(s) { return s.active; });
     if (!activeSessions.length) return null;
-    // Check if the trade's session matches any active killzone
     var sessionLower = (session || '').toLowerCase().trim();
+    if (!sessionLower) return '\u23f0 Session non renseign\u00e9e (killzones actives : ' + activeSessions.map(function(s) { return s.name; }).join(', ') + ')';
+    // Exact match only: session must exactly match one active killzone name
     var matched = activeSessions.some(function(kz) {
-      return sessionLower === kz.name.toLowerCase() ||
-             sessionLower.indexOf(kz.name.toLowerCase()) >= 0 ||
-             kz.name.toLowerCase().indexOf(sessionLower) >= 0;
+      return sessionLower === kz.name.toLowerCase();
     });
     if (matched) return null;
-    return 'Trade en dehors des killzones actives (' + activeSessions.map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + '). Session du trade : ' + (session || 'non renseign\u00e9e');
+    return '\u23f0 Trade en dehors des killzones actives (' + activeSessions.map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + '). Session du trade : \u00ab ' + session + ' \u00bb';
+  }
+  function isSessionInKillzone(session) {
+    // Returns true if session is in an active killzone, false otherwise
+    return checkKillzone(session) === null;
   }
   function guardrailConfirm(dateStr, session) {
     var r = guardrailAlerts(dateStr, true);
@@ -255,6 +259,12 @@
       if (ds.n > g.maxTrades) flags.push('\ud83d\udeab Max trades');
       if (ds.losses <= g.maxLossR) flags.push('\ud83d\udd34 Max loss');
       if (ds.net >= g.dailyTargetR) flags.push('\ud83c\udfaf Target');
+      // Check killzone violations for this day
+      if (kz.enabled !== false) {
+        var dayTrades = DB.trades.filter(function(t) { return t.date === d && S.filled(t.ret); });
+        var oosCount = dayTrades.filter(function(t) { return !isSessionInKillzone(t.session); }).length;
+        if (oosCount > 0) flags.push('\u23f0 ' + oosCount + ' hors killzone');
+      }
       days.push('<tr><td>' + esc(d) + ' (' + S.dayName(d) + ')</td><td class="num">' + ds.n + '</td><td class="num">' + wins + '</td><td class="num">' + losses + '</td><td class="num ' + cls(ds.net) + '">' + sgn(ds.net) + '</td><td class="num ' + cls(ds.losses) + '">' + sgn(ds.losses) + '</td><td>' + (flags.join(' ') || '\u2705') + '</td></tr>');
     });
     $('#main').innerHTML =
