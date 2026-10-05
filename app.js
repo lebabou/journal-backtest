@@ -28,9 +28,21 @@
   lists: { instruments: ['EURUSD','GBPUSD','GBPJPY','USDJPY','XAUUSD','AUDUSD','USDCHF','NZDUSD'], sessions: ['London','NY','London Close','MMM','Asian','Out of Session'], entries: ['SZ EM','DZ EM','FZ EM','No Entry'], aggEntries: ['Engulfing','Piercing','Tweezer','Strar','No Entry','Agressive'], sl: ['Structural Swing','FZ Structure','SZ Structure','Candle + 1p','Candle + 2p'], tp: ['SZ','DZ','Target','Structural Swing','Imbalance','Fixed','FVG','MTF DZ','Next structure','Structure','Swing Low','Liquidity'] },
   trades: [], reviews: [],
   tradingPlan: { sections: [{ title: 'Pre-market routine', items: ['Economical calendar','Review trade plan','Analyse chart','Meditate'] }, { title: 'Chart processing', items: ['Mark HTF 4h range + premium and discount','Mark liquidity (PDH/L, EQH/L)','Mark MTF 1H, 15mn Structure and POI','LTF when hit MTF POI','Build a narrative: continuation vs pullback vs reversal','Take profit (structure or imbalance)','Define invalidation'] }, { title: 'Entry criteria', items: ['Bias alignement','High probability POI','During Killzone','LQ sweep + Market shift','Asymmetrical RR'] }, { title: 'Trade management', items: ['Predifine risk before entry','Set and forget','If invalidation hits, you are done. Exit and reassess, no ONE MORE TRADE TO MAKE IT BACK'] }, { title: 'Exit criteria', items: ['TP next structure or imbalance (LTF)','SL = zone + Buffer 1,5 pip pour SND, 2,5 pips pour FZ'] }], notes: ['Bias is a plan + invalidation not a prediction','If you can\'t say your bias in one sentence, you don\'t have one','If invalidation hits, reset. No coping, no revenge TRADE','You don\'t build trust in your system with affirmations. You build it with data','Conviction \u2192 confidence \u2192 comp\u00e9tence \u2192 consistency'] },
-  notebook: { folders: ['Ideas','Drafts','Playbook','Mindset'], notes: [] },
+  notebook: {"folders": ["Ideas", "Drafts", "Playbook", "Mindset"], "notes": [{"id": "seed1", "title": "2026 goals", "icon": "\ud83c\udfaf", "folder": "Mindset", "pinned": true, "body": "# Objectifs 2026\n\n- 200 trades A+ minimum\n- Max daily loss: 2R\n- Weekly review tous les dimanches\n- Discipline score > 85%\n\n## Process over outcome\n- [ ] Pre-market routine tous les jours\n- [ ] Journal chaque trade dans l'heure\n- [ ] Review hebdo sans exception", "created": "2025-12-08T17:40:26.039255", "updated": "2026-10-04T15:40:26.039255"}, {"id": "seed2", "title": "Pre-Market Thesis", "icon": "\ud83d\udccb", "folder": "Playbook", "pinned": false, "body": "# Pre-Market Thesis Template\n\n## 1. HTF Plan\n- Pre 4H Trend:\n- Mark out HTF POIs (4H):\n- Buy in 4H Discount / Sell in 4H Premium\n- Define 4H POI\n- SBD Zones, Flip Zones, Order Blocks\n\n## 2. LTF Execution\n- 4H POI Mitigation\n- 15m LQ Sweep (V Shape Reaction)\n- Market Shift\n- Set entry limit order on edge of POI\n\n## 3. Invalidation\n- Si structure cass\u00e9e dans le sens oppos\u00e9\n- Si pas de r\u00e9action au POI dans 2 bougies", "created": "2026-03-18T17:40:26.039255", "updated": "2026-09-29T17:40:26.039255"}, {"id": "seed3", "title": "Entry Model", "icon": "\ud83c\udfaf", "folder": "Playbook", "pinned": false, "body": "# Entry Model\n\n## Conditions obligatoires\n- [ ] Bias alignement HTF\n- [ ] High probability POI\n- [ ] Pendant une killzone active\n- [ ] LQ sweep + Market shift\n- [ ] RR asym\u00e9trique (min 1:3)\n\n## Confirmation\n1. Prix atteint le POI\n2. Sweep de liquidit\u00e9 (wick)\n3. Market structure shift sur LTF\n4. Entr\u00e9e sur retest", "created": "2026-04-07T17:40:26.039255", "updated": "2026-09-22T17:40:26.039255"}, {"id": "seed4", "title": "Emotional Mapping", "icon": "\ud83e\udde0", "folder": "Mindset", "pinned": false, "body": "# Emotional Mapping Journal\n\n## Avant le trade\nQue je ressens : \nNiveau de conviction (1-10) : \n\n## Pendant\nEnvie de d\u00e9placer le SL ? \nEnvie de prendre les profits t\u00f4t ? \n\n## Apr\u00e8s\nSatisfait du process ? \nQu'est-ce que je referais diff\u00e9remment ? \n\n---\n**Rappel** : Les \u00e9motions sont des donn\u00e9es, pas des ordres.", "created": "2026-05-07T17:40:26.039255", "updated": "2026-09-14T17:40:26.039255"}, {"id": "seed5", "title": "Process", "icon": "\u2699\ufe0f", "folder": "Ideas", "pinned": false, "body": "Nouvelle r\u00e8gle : \u00e9crire la th\u00e8se avant l'ouverture du march\u00e9, pas d'intraday improvis\u00e9.\n\nSi je n'ai pas \u00e9crit mon plan avant 8h, je ne trade pas aujourd'hui.", "created": "2026-10-02T17:40:26.039255", "updated": "2026-10-04T14:40:26.039255"}]},
   calculator: { accountSize: 5000, riskPercent: 0.06, instruments: [{ name: 'NAS', pipValue: 20 },{ name: 'US500', pipValue: 1 },{ name: 'EURUSD', pipValue: 10 },{ name: 'GBPUSD', pipValue: 10 },{ name: 'XAUUSD', pipValue: 1 },{ name: 'US30', pipValue: 10 }] }
 };
+  function mergeDefaults(db) {
+    // Complete any key missing from an older file saved on Drive
+    db.lists = db.lists || {}; db.trades = db.trades || []; db.reviews = db.reviews || [];
+    var E = EMPTY_JOURNAL;
+    Object.keys(E.lists || {}).forEach(function(k) { if (!db.lists[k] || !db.lists[k].length) db.lists[k] = E.lists[k]; });
+    if (!db.tradingPlan || !db.tradingPlan.sections || !db.tradingPlan.sections.length) db.tradingPlan = E.tradingPlan;
+    if (!db.calculator) db.calculator = E.calculator;
+    if (!db.notebook) db.notebook = E.notebook;
+    if (!db.notebook.folders || !db.notebook.folders.length) db.notebook.folders = E.notebook.folders;
+    if (!db.notebook.notes) db.notebook.notes = E.notebook.notes;
+    return db;
+  }
   async function load() {
     // Initialize Google Drive connection
     Drive.init({
@@ -48,7 +60,7 @@
         var result = await Drive.load(EMPTY_JOURNAL);
         if (result.db) {
           DB = result.db;
-          DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+          mergeDefaults(DB);
           banner(''); LAST_GOOD = JSON.stringify(DB);
           if (result.source === 'created') toast('Fichier cr\u00e9\u00e9 sur Google Drive');
           updateAuthUI();
@@ -59,7 +71,7 @@
       var cached = Drive.getCached();
       if (cached && cached.trades && cached.trades.length) {
         DB = cached;
-        DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+        mergeDefaults(DB);
         banner(Drive.isSignedIn() ? '' : 'Mode hors connexion. Connectez-vous avec Google pour synchroniser.');
         LAST_GOOD = JSON.stringify(DB);
         updateAuthUI();
@@ -70,7 +82,7 @@
         var r = await fetch('journal.json');
         if (r.ok) {
           DB = await r.json();
-          DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+          mergeDefaults(DB);
           LAST_GOOD = JSON.stringify(DB);
           // Cache it locally
           try { localStorage.setItem('drive_cache_' + FILE_NAME, JSON.stringify(DB)); } catch(e2) {}
@@ -84,8 +96,8 @@
       banner('Connectez-vous avec Google pour charger vos donn\u00e9es.');
     } catch (e) {
       banner('Erreur : ' + e.message);
-      DB = Drive.getCached() || { meta: {}, lists: {}, trades: [], reviews: [] };
-      DB.lists = DB.lists || {}; DB.reviews = DB.reviews || []; DB.trades = DB.trades || [];
+      DB = Drive.getCached() || EMPTY_JOURNAL;
+      mergeDefaults(DB);
     }
     updateAuthUI(); updateStatusBar(); initNewsAlerts(); requestNotifPermission();
   }
@@ -178,7 +190,7 @@
   /* ---------- STATUS BAR (guardrails + news alerts) ---------- */
   function updateStatusBar() {
     var bar = document.getElementById('gr-status-bar');
-    if (!bar) return;
+    if (!bar || !DB) return;
     var g = getGuardrails();
     if (!g.enabled) { bar.innerHTML = ''; return; }
     var st = todayStats();
@@ -207,6 +219,7 @@
   var _newsAlertMsg = '';
 
   function initNewsAlerts() {
+    if (!DB) return;
     // Clear existing timers
     _newsTimers.forEach(function(t) { clearTimeout(t); });
     _newsTimers = [];
@@ -299,10 +312,10 @@
         { name: 'London Close', from: '17:00', to: '19:00', active: false }
       ]
     }}; }
-  function getGuardrails() { return Object.assign(defaultGuardrails(), DB.guardrails || {}); }
+  function getGuardrails() { return Object.assign(defaultGuardrails(), (DB && DB.guardrails) || {}); }
   function todayStats(dateStr) {
     var d = dateStr || new Date().toISOString().slice(0, 10);
-    var ts = DB.trades.filter(function(t) { return t.date === d && S.filled(t.ret); });
+    var ts = ((DB && DB.trades) || []).filter(function(t) { return t.date === d && S.filled(t.ret); });
     var n = ts.length;
     var net = 0, losses = 0;
     ts.forEach(function(t) { net += Number(t.ret); if (t.ret < 0) losses += Number(t.ret); });
@@ -1312,6 +1325,7 @@
   var _nbState = { search: '', folder: null, openNote: null, editing: false };
 
   function nbData() {
+    if (!DB) DB = { trades: [], reviews: [], lists: {} };
     if (!DB.notebook) DB.notebook = { notes: [], folders: ['Ideas', 'Drafts', 'Playbook', 'Mindset'] };
     if (!DB.notebook.notes) DB.notebook.notes = [];
     if (!DB.notebook.folders) DB.notebook.folders = ['Ideas', 'Drafts', 'Playbook', 'Mindset'];
@@ -1397,6 +1411,14 @@
             '</select>' +
             '</div>' +
             '<textarea id="nb-body" class="nb-body-input" placeholder="\u00c9crivez votre note ici...\n\nAstuce : utilisez - pour une liste, # pour un titre">' + esc(note.body) + '</textarea>' +
+            '<div class="nb-attach-bar">' +
+            '<button class="btn sm" id="nb-img-file">\ud83d\uddbc Image</button>' +
+            '<button class="btn sm" id="nb-img-url">\ud83d\udd17 Lien TradingView</button>' +
+            '<button class="btn sm" id="nb-rec">\ud83c\udf99 Note vocale</button>' +
+            '<span class="muted small" id="nb-rec-status"></span>' +
+            '<input type="file" id="nb-file" accept="image/*" hidden>' +
+            '</div>' +
+            nbAttachHTML(note, true) +
             '<div class="nb-editor-actions">' +
             '<button class="btn" id="nb-cancel">Annuler</button>' +
             '<button class="btn primary" id="nb-save">Enregistrer</button>' +
@@ -1412,6 +1434,7 @@
             '<button class="btn sm danger" id="nb-delete">\ud83d\uddd1</button>' +
             '</div></div>' +
             '<div class="nb-content">' + nbRenderBody(note.body) + '</div>' +
+            nbAttachHTML(note, false) +
             '</div>';
         }
       }
@@ -1429,6 +1452,7 @@
             (n.pinned ? '<span class="nb-pin-badge">\ud83d\udccc</span>' : '') +
             '<div class="nb-card-title">' + nbIcon(n) + ' ' + esc(n.title || 'Sans titre') + '</div>' +
             '<div class="nb-card-preview">' + esc(preview) + '</div>' +
+            nbCardBadges(n) +
             '<div class="nb-card-meta">' + (n.folder ? esc(n.folder) + ' \u00b7 ' : '') + nbTimeAgo(n.updated) + '</div>' +
             '</div>';
         });
@@ -1479,8 +1503,8 @@
         note.body = $('#nb-body').value;
         note.folder = $('#nb-folder').value;
         note.updated = new Date().toISOString();
-        _nbState.editing = false;
-        if (await save('Note enregistr\u00e9e')) renderNotebook();
+        if (await save('Note enregistr\u00e9e')) { _nbState.editing = false; }
+        renderNotebook();
       }
     };
     var nbPin = $('#nb-pin');
@@ -1495,6 +1519,46 @@
       _nbState.openNote = null;
       if (await save('Note supprim\u00e9e')) renderNotebook();
     };
+
+    // --- attachments ---
+    var nbFile = $('#nb-file');
+    var nbImgFile = $('#nb-img-file');
+    if (nbImgFile) nbImgFile.onclick = function() { nbFile.click(); };
+    if (nbFile) nbFile.onchange = function() {
+      var f = nbFile.files && nbFile.files[0];
+      if (!f) return;
+      if (f.size > 1500000) { alert('Image trop lourde (max ~1,5 Mo). R\u00e9duisez-la avant de l\u2019ajouter.'); return; }
+      var rd = new FileReader();
+      rd.onload = function() {
+        nbCurrentNote().attachments = nbCurrentNote().attachments || [];
+        nbCurrentNote().attachments.push({ type: 'image', src: rd.result, name: f.name });
+        nbKeepDraft(); renderNotebook();
+      };
+      rd.readAsDataURL(f);
+    };
+    var nbImgUrl = $('#nb-img-url');
+    if (nbImgUrl) nbImgUrl.onclick = function() {
+      var u = prompt('Collez le lien TradingView (ou l\u2019URL d\u2019une image) :');
+      if (!u) return;
+      var src = S.imageUrl ? S.imageUrl(u.trim()) : u.trim();
+      nbCurrentNote().attachments = nbCurrentNote().attachments || [];
+      nbCurrentNote().attachments.push({ type: 'image', src: src, name: 'TradingView' });
+      nbKeepDraft(); renderNotebook();
+    };
+    var nbRec = $('#nb-rec');
+    if (nbRec) nbRec.onclick = function() { nbToggleRecording(); };
+    document.querySelectorAll('.nb-att-del').forEach(function(b) {
+      b.onclick = function(e) {
+        e.stopPropagation();
+        var n = nbCurrentNote();
+        n.attachments.splice(+b.dataset.i, 1);
+        nbKeepDraft(); renderNotebook();
+      };
+    });
+    document.querySelectorAll('.nb-att-img img').forEach(function(im) {
+      im.onclick = function() { if (typeof openLightbox === 'function') openLightbox(im.src); else window.open(im.src, '_blank'); };
+    });
+
     var nbAddF = $('#nb-add-folder');
     if (nbAddF) nbAddF.onclick = async function(e) {
       e.stopPropagation();
@@ -1504,6 +1568,90 @@
         if (await save('Dossier cr\u00e9\u00e9')) renderNotebook();
       }
     };
+  }
+
+
+  function nbCardBadges(n) {
+    var a = n.attachments || [];
+    if (!a.length) return '';
+    var imgs = a.filter(function(x) { return x.type === 'image'; });
+    var auds = a.filter(function(x) { return x.type === 'audio'; });
+    var h = '';
+    if (imgs.length) h += '<div class="nb-card-thumb">' + imgs.slice(0, 3).map(function(x) { return '<img src="' + esc(x.src) + '" loading="lazy">'; }).join('') + '</div>';
+    var bits = [];
+    if (imgs.length) bits.push('\ud83d\uddbc ' + imgs.length);
+    if (auds.length) bits.push('\ud83c\udf99 ' + auds.length);
+    if (bits.length) h += '<div class="nb-card-badges">' + bits.join(' \u00b7 ') + '</div>';
+    return h;
+  }
+
+  function nbCurrentNote() {
+    return nbData().notes.filter(function(n) { return n.id === _nbState.openNote; })[0];
+  }
+  function nbKeepDraft() {
+    // keep what is typed in the editor when the view re-renders
+    var t = $('#nb-title'), b = $('#nb-body'), f = $('#nb-folder'), n = nbCurrentNote();
+    if (n && t) { n.title = t.value; n.body = b.value; n.folder = f.value; }
+  }
+  function nbAttachHTML(note, editable) {
+    var a = note.attachments || [];
+    if (!a.length) return '';
+    var html = '<div class="nb-attachments">';
+    a.forEach(function(att, i) {
+      var del = editable ? '<button class="nb-att-del" data-i="' + i + '" title="Supprimer">\u00d7</button>' : '';
+      if (att.type === 'image') {
+        html += '<div class="nb-att nb-att-img">' + del + '<img src="' + esc(att.src) + '" alt="' + esc(att.name || '') + '" loading="lazy"></div>';
+      } else if (att.type === 'audio') {
+        html += '<div class="nb-att nb-att-audio">' + del +
+          '<div class="nb-audio-label">\ud83c\udf99 ' + esc(att.name || 'Note vocale') + ' <span class="muted">' + esc(att.dur || '') + '</span></div>' +
+          '<audio controls preload="none" src="' + esc(att.src) + '"></audio></div>';
+      }
+    });
+    return html + '</div>';
+  }
+
+  /* --- voice notes --- */
+  var _nbRec = null, _nbChunks = [], _nbRecStart = 0, _nbRecTimer = null;
+  function nbToggleRecording() {
+    var btn = $('#nb-rec'), st = $('#nb-rec-status');
+    if (_nbRec && _nbRec.state === 'recording') { _nbRec.stop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      alert('L\u2019enregistrement audio n\u2019est pas disponible dans ce navigateur.'); return;
+    }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+      _nbChunks = [];
+      _nbRec = new MediaRecorder(stream);
+      _nbRec.ondataavailable = function(e) { if (e.data.size) _nbChunks.push(e.data); };
+      _nbRec.onstop = function() {
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        clearInterval(_nbRecTimer);
+        var secs = Math.round((Date.now() - _nbRecStart) / 1000);
+        var blob = new Blob(_nbChunks, { type: _nbChunks[0] ? _nbChunks[0].type : 'audio/webm' });
+        if (blob.size > 2000000) { alert('Note vocale trop longue (max ~2 Mo, environ 2 minutes).'); return; }
+        var rd = new FileReader();
+        rd.onload = function() {
+          var n = nbCurrentNote();
+          n.attachments = n.attachments || [];
+          n.attachments.push({ type: 'audio', src: rd.result,
+            name: 'Note vocale ' + new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+            dur: Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2) });
+          nbKeepDraft(); renderNotebook();
+        };
+        rd.readAsDataURL(blob);
+      };
+      _nbRec.start();
+      _nbRecStart = Date.now();
+      if (btn) { btn.textContent = '\u23f9 Arr\u00eater'; btn.classList.add('danger'); }
+      _nbRecTimer = setInterval(function() {
+        var s2 = $('#nb-rec-status');
+        if (!s2) return;
+        var secs = Math.round((Date.now() - _nbRecStart) / 1000);
+        s2.textContent = '\u25cf Enregistrement ' + Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2);
+        if (secs >= 120 && _nbRec && _nbRec.state === 'recording') _nbRec.stop();
+      }, 500);
+    }).catch(function(err) {
+      alert('Micro inaccessible : ' + err.message + '\n\nAutorisez le micro pour ce site dans les param\u00e8tres du navigateur.');
+    });
   }
 
   function nbSidebarItem(n) {
@@ -1582,7 +1730,7 @@
   const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'data'];
   function render() {
     hideNews(); hideTrading(); updateStatusBar();
-    $('#dbname').textContent = (DB.meta && DB.meta.name) || 'Journal de backtest';
+    $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
     ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, data: renderData }[view] || renderDashboard)();
   }
