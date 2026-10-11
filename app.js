@@ -707,7 +707,7 @@
   function drawLightbox() {
     const lb = $('#lightbox'), it = LB.items[LB.i];
     lb.hidden = false;
-    lb.innerHTML = `<button class="x" aria-label="Fermer">×</button>${LB.items.length > 1 ? '<button class="nav prev">‹</button><button class="nav next">›</button>' : ''}<img src="${esc(it.src)}" alt=""><div class="cap">${esc(it.label)} (${LB.i + 1}/${LB.items.length}) · <a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="color:#8fc1ff">ouvrir l'original</a></div>`;
+    lb.innerHTML = `<button class="x" aria-label="Fermer">×</button>${LB.items.length > 1 ? '<button class="nav prev">‹</button><button class="nav next">›</button>' : ''}<img src="${esc(it.src)}" alt=""><div class="cap">${esc(it.label)} (${LB.i + 1}/${LB.items.length})${it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" style="color:#8fc1ff">ouvrir l'original</a>` : ''}</div>`;
     lb.querySelector('.x').onclick = closeLightbox;
     if (LB.items.length > 1) { lb.querySelector('.prev').onclick = e => { e.stopPropagation(); step(-1); }; lb.querySelector('.next').onclick = e => { e.stopPropagation(); step(1); }; }
     lb.onclick = e => { if (e.target === lb) closeLightbox(); };
@@ -1540,9 +1540,10 @@
     if (nbImgUrl) nbImgUrl.onclick = function() {
       var u = prompt('Collez le lien TradingView (ou l\u2019URL d\u2019une image) :');
       if (!u) return;
-      var src = S.imageUrl ? S.imageUrl(u.trim()) : u.trim();
+      var raw = u.trim();
+      var src = S.imageUrl ? S.imageUrl(raw) : raw;
       nbCurrentNote().attachments = nbCurrentNote().attachments || [];
-      nbCurrentNote().attachments.push({ type: 'image', src: src, name: 'TradingView' });
+      nbCurrentNote().attachments.push({ type: 'image', src: src, url: raw, name: 'TradingView' });
       nbKeepDraft(); renderNotebook();
     };
     var nbRec = $('#nb-rec');
@@ -1556,7 +1557,14 @@
       };
     });
     document.querySelectorAll('.nb-att-img img').forEach(function(im) {
-      im.onclick = function() { if (typeof openLightbox === 'function') openLightbox(im.src); else window.open(im.src, '_blank'); };
+      im.onclick = function() {
+        var n = nbCurrentNote();
+        if (!n) return;
+        var imgs = (n.attachments || []).filter(function(x) { return x.type === 'image'; })
+          .map(function(x) { return { src: x.src, url: x.url || '', label: x.name || 'Image' }; });
+        if (!imgs.length) return;
+        openLightbox(imgs, +im.dataset.img || 0);
+      };
     });
 
     var nbAddF = $('#nb-add-folder');
@@ -1597,10 +1605,16 @@
     var a = note.attachments || [];
     if (!a.length) return '';
     var html = '<div class="nb-attachments">';
+    var imgIdx = 0;
     a.forEach(function(att, i) {
       var del = editable ? '<button class="nb-att-del" data-i="' + i + '" title="Supprimer">\u00d7</button>' : '';
       if (att.type === 'image') {
-        html += '<div class="nb-att nb-att-img">' + del + '<img src="' + esc(att.src) + '" alt="' + esc(att.name || '') + '" loading="lazy"></div>';
+        html += '<div class="nb-att nb-att-img">' + del +
+          '<img src="' + esc(att.src) + '" alt="' + esc(att.name || '') + '" loading="lazy" data-img="' + imgIdx + '" onerror="this.classList.add(\'nb-img-broken\')">' +
+          '<div class="nb-img-fallback">\u26a0 Image inaccessible' +
+          (att.url ? ' \u2014 <a href="' + esc(att.url) + '" target="_blank" rel="noopener noreferrer">ouvrir le lien</a>' : '') +
+          '</div></div>';
+        imgIdx++;
       } else if (att.type === 'audio') {
         html += '<div class="nb-att nb-att-audio">' + del +
           '<div class="nb-audio-label">\ud83c\udf99 ' + esc(att.name || 'Note vocale') + ' <span class="muted">' + esc(att.dur || '') + '</span></div>' +
