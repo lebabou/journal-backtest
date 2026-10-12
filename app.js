@@ -204,7 +204,18 @@
     var html = '<span class="gr-pill ' + tradesCls + '" title="Trades / Max">\ud83d\udcca ' + st.n + '/' + g.maxTrades + '</span>';
     html += '<span class="gr-pill ' + netCls + '" title="Net R du jour">Net ' + sgn(st.net) + 'R</span>';
     html += '<span class="gr-pill ' + lossCls + '" title="Pertes / Max loss">Loss ' + sgn(st.losses) + '/' + sgn(g.maxLossR) + '</span>';
-    if (st.net >= g.dailyTargetR) html += '<span class="gr-pill gr-pill-target" title="Target atteint">\ud83c\udfaf</span>';
+    if (st.net >= g.dailyTargetR) html += '<span class="gr-pill gr-pill-target" title="Daily target atteint">\ud83c\udfaf</span>';
+    var wk = periodStats('week'), mo = periodStats('month');
+    if (g.weeklyTargetR > 0) {
+      var wkHit = wk.net >= g.weeklyTargetR;
+      html += '<span class="gr-pill ' + (wkHit ? 'gr-pill-target' : wk.net < 0 ? 'gr-pill-warn' : 'gr-pill-ok') + '" title="Semaine ' + esc(wk.label) + '">' +
+        (wkHit ? '\ud83d\udcc5\u2713 ' : 'S ') + sgn(wk.net) + '/' + num(g.weeklyTargetR) + 'R</span>';
+    }
+    if (g.monthlyTargetR > 0) {
+      var moHit = mo.net >= g.monthlyTargetR;
+      html += '<span class="gr-pill ' + (moHit ? 'gr-pill-target' : mo.net < 0 ? 'gr-pill-warn' : 'gr-pill-ok') + '" title="Mois ' + esc(mo.label) + '">' +
+        (moHit ? '\ud83c\udfc6\u2713 ' : 'M ') + sgn(mo.net) + '/' + num(g.monthlyTargetR) + 'R</span>';
+    }
     if (st.losses <= g.maxLossR) html += '<span class="gr-pill gr-pill-danger" title="Max loss atteint">\ud83d\udd34</span>';
 
     // News alert countdown
@@ -303,7 +314,7 @@
 
 
   /* ---------- GUARDRAILS ---------- */
-  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, enabled: true, killzones: {
+  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, weeklyTargetR: 10, monthlyTargetR: 30, enabled: true, killzones: {
       enabled: true,
       sessions: [
         { name: 'Asian', from: '03:00', to: '07:00', active: false },
@@ -313,6 +324,35 @@
       ]
     }}; }
   function getGuardrails() { return Object.assign(defaultGuardrails(), (DB && DB.guardrails) || {}); }
+  function weekStartISO(d) {
+    var x = d ? new Date(d + 'T00:00:00') : new Date();
+    var day = x.getDay();
+    x.setDate(x.getDate() - day + (day === 0 ? -6 : 1));
+    return x.toISOString().slice(0, 10);
+  }
+  function periodStats(kind, dateStr) {
+    // kind: 'week' | 'month' ; returns { net, n, from, to, label }
+    var ref = dateStr || new Date().toISOString().slice(0, 10);
+    var from, to, label;
+    if (kind === 'week') {
+      from = weekStartISO(ref);
+      var e = new Date(from + 'T00:00:00'); e.setDate(e.getDate() + 6);
+      to = e.toISOString().slice(0, 10);
+      label = 'semaine du ' + new Date(from + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+    } else {
+      from = ref.slice(0, 8) + '01';
+      var d2 = new Date(ref.slice(0, 7) + '-01T00:00:00');
+      d2.setMonth(d2.getMonth() + 1); d2.setDate(0);
+      to = d2.toISOString().slice(0, 10);
+      label = new Date(from + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    }
+    var ts = ((DB && DB.trades) || []).filter(function(t) {
+      return t.date && t.date >= from && t.date <= to && S.filled(t.ret);
+    });
+    var net = 0;
+    ts.forEach(function(t) { net += Number(t.ret); });
+    return { net: net, n: ts.length, from: from, to: to, label: label };
+  }
   function todayStats(dateStr) {
     var d = dateStr || new Date().toISOString().slice(0, 10);
     var ts = ((DB && DB.trades) || []).filter(function(t) { return t.date === d && S.filled(t.ret); });
@@ -330,7 +370,10 @@
     if (st.losses <= g.maxLossR) alerts.push({ level: 'danger', msg: 'Max loss atteint : ' + sgn(st.losses) + ' R (limite : ' + sgn(g.maxLossR) + ' R)', icon: '\ud83d\udd34' });
     else if (g.maxLossR !== 0 && st.losses <= g.maxLossR * 0.7) alerts.push({ level: 'warn', msg: 'Attention : ' + sgn(st.losses) + ' R de pertes (limite : ' + sgn(g.maxLossR) + ' R)', icon: '\u26a0\ufe0f' });
     if (st.net >= g.dailyTargetR) alerts.push({ level: 'ok', msg: 'Daily target atteint : ' + sgn(st.net) + ' R (objectif : +' + num(g.dailyTargetR) + ' R)', icon: '\ud83c\udfaf' });
-    return { alerts: alerts, st: st, g: g };
+    var wk = periodStats('week', dateStr), mo = periodStats('month', dateStr);
+    if (g.weeklyTargetR > 0 && wk.net >= g.weeklyTargetR) alerts.push({ level: 'ok', msg: 'Objectif hebdomadaire atteint : ' + sgn(wk.net) + ' R (objectif : +' + num(g.weeklyTargetR) + ' R)', icon: '\ud83d\udcc5' });
+    if (g.monthlyTargetR > 0 && mo.net >= g.monthlyTargetR) alerts.push({ level: 'ok', msg: 'Objectif mensuel atteint : ' + sgn(mo.net) + ' R (objectif : +' + num(g.monthlyTargetR) + ' R)', icon: '\ud83c\udfc6' });
+    return { alerts: alerts, st: st, g: g, wk: wk, mo: mo };
   }
   function guardrailBanner() {
     var r = guardrailAlerts();
@@ -372,6 +415,7 @@
   }
   function renderGuardrails() {
     var g = getGuardrails(), st = todayStats();
+    var wkS = periodStats('week'), moS = periodStats('month');
     var kz = g.killzones || defaultGuardrails().killzones;
     var kzSessions = kz.sessions || defaultGuardrails().killzones.sessions;
     var r = guardrailAlerts();
@@ -405,6 +449,8 @@
       '<label>Max trades / jour<input type="number" id="gr-maxTrades" min="1" value="' + g.maxTrades + '"></label>' +
       '<label>Max loss / jour (R)<input type="number" id="gr-maxLoss" step="0.5" value="' + g.maxLossR + '"></label>' +
       '<label>Daily target (R)<input type="number" id="gr-target" step="0.5" min="0" value="' + g.dailyTargetR + '"></label>' +
+      '<label>Objectif hebdo (R)<input type="number" id="gr-weekly" step="0.5" min="0" value="' + g.weeklyTargetR + '"></label>' +
+      '<label>Objectif mensuel (R)<input type="number" id="gr-monthly" step="0.5" min="0" value="' + g.monthlyTargetR + '"></label>' +
       '</div></div>' +
       '<div class="gr-settings" style="margin-top:14px"><h3>\u23f0 Killzones (fen\u00eatres de trading)</h3>' +
       '<p class="muted small">S\u00e9lectionnez les sessions pendant lesquelles vous tradez. Un avertissement s\u2019affiche si vous enregistrez un trade en dehors de ces fen\u00eatres.</p>' +
@@ -421,6 +467,8 @@
       '<div class="kpis"><div class="kpi"><div class="l">Trades aujourd\u2019hui</div><div class="v ' + (st.n >= g.maxTrades ? 'neg' : '') + '">' + st.n + ' / ' + g.maxTrades + '</div></div>' +
       '<div class="kpi"><div class="l">Pertes du jour</div><div class="v ' + (st.losses <= g.maxLossR ? 'neg' : '') + '">' + sgn(st.losses) + ' R</div></div>' +
       '<div class="kpi"><div class="l">Net du jour</div><div class="v ' + cls(st.net) + '">' + sgn(st.net) + ' R</div></div>' +
+      '<div class="kpi"><div class="l">Semaine (' + wkS.label + ')</div><div class="v ' + (g.weeklyTargetR > 0 && wkS.net >= g.weeklyTargetR ? 'pos' : cls(wkS.net)) + '">' + sgn(wkS.net) + ' / ' + (g.weeklyTargetR > 0 ? '+' + num(g.weeklyTargetR) : '\u2014') + ' R</div></div>' +
+      '<div class="kpi"><div class="l">Mois (' + moS.label + ')</div><div class="v ' + (g.monthlyTargetR > 0 && moS.net >= g.monthlyTargetR ? 'pos' : cls(moS.net)) + '">' + sgn(moS.net) + ' / ' + (g.monthlyTargetR > 0 ? '+' + num(g.monthlyTargetR) : '\u2014') + ' R</div></div>' +
       '<div class="kpi"><div class="l">Killzones actives</div><div class="v">' + (kz.enabled !== false ? kzSessions.filter(function(s){return s.active}).map(function(s){return s.name}).join(', ') || 'Aucune' : 'D\u00e9sactiv\u00e9') + '</div></div>' +
       '<div class="kpi"><div class="l">Daily target</div><div class="v ' + (st.net >= g.dailyTargetR ? 'pos' : '') + '">+' + num(g.dailyTargetR) + ' R</div></div></div>' +
       '<h2>Historique des 7 derniers jours de trading</h2>' +
@@ -430,7 +478,7 @@
       document.querySelectorAll('.kz-active').forEach(function(cb, i) {
         kzSess.push({ name: kzSessions[i].name, from: document.querySelectorAll('.kz-from')[i].value || kzSessions[i].from, to: document.querySelectorAll('.kz-to')[i].value || kzSessions[i].to, active: cb.checked });
       });
-      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, dailyTargetR: +$('#gr-target').value || 3, killzones: { enabled: $('#kz-enabled').checked, sessions: kzSess } };
+      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, dailyTargetR: +$('#gr-target').value || 3, weeklyTargetR: +$('#gr-weekly').value || 0, monthlyTargetR: +$('#gr-monthly').value || 0, killzones: { enabled: $('#kz-enabled').checked, sessions: kzSess } };
       if (await save('Guardrails enregistr\u00e9s')) renderGuardrails();
     };
   }
