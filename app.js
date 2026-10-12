@@ -1479,6 +1479,8 @@
             '<div class="nb-view-actions">' +
             '<button class="btn sm" id="nb-pin" title="\u00c9pingler">' + (note.pinned ? '\ud83d\udccc' : '\ud83d\udccd') + '</button>' +
             '<button class="btn sm" id="nb-edit">\u270f\ufe0f Modifier</button>' +
+            '<button class="btn sm" id="nb-copy" title="Copier vers l\'autre journal">\ud83d\udccb Copier</button>' +
+            '<button class="btn sm" id="nb-dup" title="Dupliquer ici">\u29c9</button>' +
             '<button class="btn sm danger" id="nb-delete">\ud83d\uddd1</button>' +
             '</div></div>' +
             '<div class="nb-content">' + nbRenderBody(note.body) + '</div>' +
@@ -1488,8 +1490,11 @@
       }
     } else {
       // Grid view
+      var clip = nbClipPeek();
       mainHTML += '<div class="nb-grid-head"><h2>' + (_nbState.folder ? '\ud83d\udcc2 ' + esc(_nbState.folder) : 'Toutes les notes') + '</h2>' +
-        '<button class="btn primary" id="nb-new">+ Nouvelle note</button></div>';
+        '<div style="display:flex;gap:6px;align-items:center">' +
+        (clip ? '<button class="btn" id="nb-paste" title="Coller la note copi\u00e9e">\ud83d\udccb Coller \u00ab ' + esc((clip.note.title || 'Sans titre').slice(0, 24)) + ' \u00bb</button>' : '') +
+        '<button class="btn primary" id="nb-new">+ Nouvelle note</button></div></div>';
       if (!filtered.length) {
         mainHTML += '<div class="nb-empty">Aucune note. Cliquez sur \u00ab + Nouvelle note \u00bb pour commencer.</div>';
       } else {
@@ -1531,6 +1536,31 @@
       nbData().notes.unshift(n);
       _nbState.openNote = n.id; _nbState.editing = true;
       renderNotebook();
+    };
+    var nbCopy = $('#nb-copy');
+    if (nbCopy) nbCopy.onclick = function() {
+      var n = nbCurrentNote();
+      if (n) { nbCopyToClip(n); renderNotebook(); }
+    };
+    var nbDup = $('#nb-dup');
+    if (nbDup) nbDup.onclick = async function() {
+      var n = nbCurrentNote();
+      if (!n) return;
+      var copy = JSON.parse(JSON.stringify(n));
+      copy.id = nbNewId(); copy.pinned = false;
+      copy.title = (copy.title || 'Sans titre') + ' (copie)';
+      copy.created = copy.updated = new Date().toISOString();
+      nbData().notes.unshift(copy);
+      _nbState.openNote = copy.id; _nbState.editing = false;
+      if (await save('Note dupliqu\u00e9e')) renderNotebook(); else renderNotebook();
+    };
+    var nbPaste = $('#nb-paste');
+    if (nbPaste) nbPaste.onclick = async function() {
+      var clip = nbClipPeek();
+      if (!clip) { toast('Rien \u00e0 coller'); return; }
+      var n = nbPasteNote(clip);
+      _nbState.openNote = n.id; _nbState.editing = false;
+      if (await save('Note coll\u00e9e depuis ' + (clip.from || 'l\'autre journal'))) renderNotebook(); else renderNotebook();
     };
     var nbEdit = $('#nb-edit');
     if (nbEdit) nbEdit.onclick = function() { _nbState.editing = true; renderNotebook(); };
@@ -1639,6 +1669,59 @@
     if (auds.length) bits.push('\ud83c\udf99 ' + auds.length);
     if (bits.length) h += '<div class="nb-card-badges">' + bits.join(' \u00b7 ') + '</div>';
     return h;
+  }
+
+
+  /* --- presse-papier de notes, partagé entre les deux journaux (même domaine) --- */
+  var NB_CLIP = 'nb_clipboard_v1';
+  function nbClipPeek() {
+    try {
+      var raw = localStorage.getItem(NB_CLIP);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      return (o && o.note && o.note.title !== undefined) ? o : null;
+    } catch (e) { return null; }
+  }
+  function nbCopyToClip(note) {
+    var copy = JSON.parse(JSON.stringify(note));
+    delete copy.id;
+    var payload = { from: (DB.meta && DB.meta.name) || 'Journal', at: new Date().toISOString(), note: copy };
+    var txt = JSON.stringify(payload);
+    try {
+      localStorage.setItem(NB_CLIP, txt);
+    } catch (e) {
+      // quota exceeded: retry without the attachments
+      var light = JSON.parse(JSON.stringify(payload));
+      light.note.attachments = [];
+      light.stripped = true;
+      try { localStorage.setItem(NB_CLIP, JSON.stringify(light)); } catch (e2) {
+        alert('Note trop volumineuse pour \u00eatre copi\u00e9e.'); return false;
+      }
+      toast('Note copi\u00e9e sans les pi\u00e8ces jointes (trop volumineuses)', 6000);
+      return true;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).catch(function() {});
+    }
+    var nAtt = (copy.attachments || []).length;
+    toast('Note copi\u00e9e' + (nAtt ? ' avec ' + nAtt + ' pi\u00e8ce(s) jointe(s)' : '') + ' \u2014 collez-la dans l\'autre journal', 6000);
+    return true;
+  }
+  function nbPasteNote(payload) {
+    var src = payload.note;
+    var n = JSON.parse(JSON.stringify(src));
+    n.id = nbNewId();
+    n.pinned = false;
+    n.created = new Date().toISOString();
+    n.updated = new Date().toISOString();
+    var nb = nbData();
+    // keep the folder only if it exists here, otherwise create it
+    if (n.folder && nb.folders.indexOf(n.folder) < 0) nb.folders.push(n.folder);
+    // avoid a confusing duplicate title inside the same journal
+    var sameTitle = nb.notes.filter(function(x) { return x.title === n.title; }).length;
+    if (sameTitle) n.title = n.title + ' (copie)';
+    nb.notes.unshift(n);
+    return n;
   }
 
   function nbCurrentNote() {
