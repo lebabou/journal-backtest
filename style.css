@@ -224,3 +224,8 @@ tr.low td{opacity:.5}
 .nb-img-fallback a{color:var(--accent)}
 .nb-att-img img.nb-img-broken{display:none}
 .nb-att-img img.nb-img-broken + .nb-img-fallback{display:block}
+
+/* Trading plan: plan bar */
+.tp-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px}
+.tp-bar label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:600}
+.tp-bar select{font-size:14px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:600;text-transform:none}
