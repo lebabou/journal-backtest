@@ -10,9 +10,13 @@
 
   var tokenClient = null;
   var accessToken = null;
-  var fileId = null; // Drive file ID of journal.json
+  var tokenExp = 0;              // epoch ms when the token dies
+  var fileId = null;             // Drive file ID of journal.json
   var onAuthChange = null;
   var DB_CACHE_KEY = '';
+  var REMEMBER = 'drive_connected';   // survives a tab close, unlike the token
+  var pending = null;            // { resolve, reject } for an in-flight token request
+  var refreshTimer = null;
 
   function init(opts) {
     CLIENT_ID = opts.clientId;
@@ -20,83 +24,155 @@
     DB_CACHE_KEY = 'drive_cache_' + FILE_NAME;
     onAuthChange = opts.onAuthChange || function() {};
 
-    // Try to restore token from session
     var saved = sessionStorage.getItem('drive_token');
     if (saved) {
       try {
         var t = JSON.parse(saved);
-        if (t.expires_at > Date.now()) {
-          accessToken = t.access_token;
+        if (t.expires_at > Date.now() + 30000) { accessToken = t.access_token; tokenExp = t.expires_at; }
+      } catch (e) {}
+    }
+    scheduleRefresh();
+
+    // Reacquire quietly when the user comes back to the tab after a long pause
+    if (!init._hooked) {
+      init._hooked = true;
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && wasConnected() && !tokenValid()) {
+          ensureToken(false).then(function() { onAuthChange(true); }).catch(function() {});
         }
-      } catch(e) {}
+      });
     }
   }
 
+  function wasConnected() { try { return localStorage.getItem(REMEMBER) === '1'; } catch (e) { return false; } }
+  function tokenValid() { return !!accessToken && tokenExp > Date.now() + 30000; }
+
+  function storeToken(resp) {
+    accessToken = resp.access_token;
+    tokenExp = Date.now() + ((resp.expires_in || 3600) * 1000);
+    try {
+      sessionStorage.setItem('drive_token', JSON.stringify({ access_token: accessToken, expires_at: tokenExp }));
+      localStorage.setItem(REMEMBER, '1');
+    } catch (e) {}
+    scheduleRefresh();
+  }
+
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    if (!tokenExp) return;
+    // renew 5 minutes before the token dies, so a save never hits an expired one
+    var delay = tokenExp - Date.now() - 5 * 60 * 1000;
+    if (delay < 0) delay = 0;
+    if (delay > 24 * 3600 * 1000) return;
+    refreshTimer = setTimeout(function() {
+      if (wasConnected()) ensureToken(false).catch(function() {});
+    }, delay);
+  }
+
   function initTokenClient() {
-    if (tokenClient) return;
-    if (!window.google || !window.google.accounts) {
-      console.error('Google Identity Services not loaded');
-      return;
-    }
+    if (tokenClient) return true;
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) return false;
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
       callback: function(response) {
+        var p = pending; pending = null;
         if (response.error) {
-          console.error('Auth error:', response);
-          onAuthChange(false, response.error_description || response.error);
+          // the silent renewal was refused: the user must click once to reconnect
+          accessToken = null; tokenExp = 0;
+          try { sessionStorage.removeItem('drive_token'); localStorage.removeItem(REMEMBER); } catch (e) {}
+          onAuthChange(false);
+          if (p) p.reject(new Error('AUTH_REQUIRED'));
           return;
         }
-        accessToken = response.access_token;
-        // Save with expiry
-        sessionStorage.setItem('drive_token', JSON.stringify({
-          access_token: accessToken,
-          expires_at: Date.now() + (response.expires_in || 3600) * 1000
-        }));
-        fileId = null; // re-discover file
+        storeToken(response);
+        fileId = null;                 // re-discover the file with the new token
+        if (p) p.resolve(accessToken);
         onAuthChange(true);
       }
     });
+    return true;
+  }
+
+  /* Returns a valid token, renewing it silently when possible.
+     interactive=true shows the Google popup; false tries a quiet renewal. */
+  function ensureToken(interactive) {
+    if (tokenValid()) return Promise.resolve(accessToken);
+    if (!initTokenClient()) return Promise.reject(new Error('Google non charg\u00e9. Rechargez la page.'));
+    if (pending) return pending.promise;          // one request at a time
+    var p = {};
+    p.promise = new Promise(function(res, rej) { p.resolve = res; p.reject = rej; });
+    pending = p;
+    try {
+      // prompt:'' = no popup when the user already granted access
+      tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+    } catch (e) {
+      pending = null;
+      return Promise.reject(e);
+    }
+    // guard against a silent request that never calls back (popup blocked, session gone)
+    setTimeout(function() {
+      if (pending === p) { pending = null; p.reject(new Error('SILENT_FAILED')); }
+    }, 20000);
+    return p.promise;
   }
 
   function signIn() {
-    initTokenClient();
-    if (!tokenClient) {
-      onAuthChange(false, 'Google Identity Services non chargé. Rechargez la page.');
-      return;
-    }
-    tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+    if (!initTokenClient()) { onAuthChange(false, 'Google Identity Services non charg\u00e9. Rechargez la page.'); return; }
+    ensureToken(true).then(function() { onAuthChange(true); })
+      .catch(function(e) { onAuthChange(false, e.message); });
   }
 
   function signOut() {
-    if (accessToken) {
-      google.accounts.oauth2.revoke(accessToken);
+    if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
+      try { google.accounts.oauth2.revoke(accessToken); } catch (e) {}
     }
-    accessToken = null;
-    fileId = null;
+    accessToken = null; tokenExp = 0; fileId = null;
+    clearTimeout(refreshTimer);
     sessionStorage.removeItem('drive_token');
+    try { localStorage.removeItem(REMEMBER); } catch (e) {}
     onAuthChange(false);
   }
 
   function isSignedIn() {
-    return !!accessToken;
+    // still "signed in" while the token is merely stale but silently renewable
+    return tokenValid() || (wasConnected() && !!CLIENT_ID);
   }
 
-  // Raw fetch with auth
-  function driveReq(url, opts) {
+  // Authenticated fetch: renews the token once and retries on a 401
+  function driveReq(url, opts, _retried) {
     opts = opts || {};
-    opts.headers = opts.headers || {};
-    opts.headers['Authorization'] = 'Bearer ' + accessToken;
-    return fetch(url, opts).then(function(r) {
-      if (r.status === 401) {
-        // Token expired, try to refresh
-        accessToken = null;
+    return ensureToken(false).then(function(tok) {
+      var o = { method: opts.method, body: opts.body, headers: {} };
+      Object.keys(opts.headers || {}).forEach(function(k) { o.headers[k] = opts.headers[k]; });
+      o.headers['Authorization'] = 'Bearer ' + tok;
+      return fetch(url, o);
+    }).then(function(r) {
+      if (r.status === 401 && !_retried) {
+        accessToken = null; tokenExp = 0;
         sessionStorage.removeItem('drive_token');
-        return Promise.reject(new Error('Session expirée. Reconnectez-vous.'));
+        return driveReq(url, opts, true);     // one silent retry
+      }
+      if (r.status === 401) {
+        accessToken = null; tokenExp = 0;
+        sessionStorage.removeItem('drive_token');
+        try { localStorage.removeItem(REMEMBER); } catch (e) {}
+        onAuthChange(false);
+        return Promise.reject(new Error('Session Google expir\u00e9e. Cliquez sur \u00ab Connexion Google \u00bb, vos donn\u00e9es sont conserv\u00e9es.'));
       }
       return r;
+    }).catch(function(e) {
+      var m = e && e.message;
+      if (m === 'SILENT_FAILED' || m === 'AUTH_REQUIRED' || /interaction_required|login_required|consent_required|access_denied/i.test(m || '')) {
+        accessToken = null; tokenExp = 0;
+        try { sessionStorage.removeItem('drive_token'); localStorage.removeItem(REMEMBER); } catch (e2) {}
+        onAuthChange(false);
+        return Promise.reject(new Error('Reconnexion Google n\u00e9cessaire. Cliquez sur \u00ab Connexion Google \u00bb, vos donn\u00e9es sont conserv\u00e9es sur cet appareil.'));
+      }
+      return Promise.reject(e);
     });
   }
+
 
   // Find journal.json on Drive
   function findFile() {
@@ -151,7 +227,7 @@
 
   // Public API
   function load(defaultDb) {
-    if (!accessToken) {
+    if (!isSignedIn()) {
       // Return cached version if available
       var cached = localStorage.getItem(DB_CACHE_KEY);
       if (cached) {
@@ -176,9 +252,9 @@
   }
 
   function save(db) {
-    // Always cache locally first
-    localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db));
-    if (!accessToken) {
+    // Always cache locally first, so nothing is lost even if the network call fails
+    try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db)); } catch (e) {}
+    if (!isSignedIn()) {
       return Promise.reject(new Error('Non connecté. Connectez-vous avec Google pour enregistrer.'));
     }
     return findFile().then(function(id) {

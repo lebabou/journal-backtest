@@ -51,6 +51,7 @@
       fileName: FILE_NAME,
       onAuthChange: function(ok, err) {
         updateAuthUI();
+        if (ok) retrySync();
         if (ok) load().then(render);
         if (err) banner('Erreur de connexion : ' + err);
       }
@@ -119,18 +120,37 @@
     }
   }
   let LAST_GOOD = null;
+  var PENDING_SYNC = false;
   async function save(okMsg) {
     try {
       await Drive.save(DB);
       LAST_GOOD = JSON.stringify(DB);
+      PENDING_SYNC = false;
       banner('');
       toast(okMsg || 'Enregistr\u00e9 \u2601'); updateStatusBar();
       return true;
     } catch (e) {
+      var m = e && e.message ? e.message : String(e);
+      // Auth or network problem: the change is already in the local cache, so keep it
+      var recoverable = /Connexion Google|expir|Non connect|Reconnexion|AUTH_REQUIRED|SILENT_FAILED|interaction_required|login_required|Failed to fetch|NetworkError|network/i.test(m);
+      if (recoverable) {
+        PENDING_SYNC = true;
+        updateStatusBar();
+        banner('\u26a0 Non synchronis\u00e9 : ' + m + ' Votre modification est conserv\u00e9e sur cet appareil.');
+        return true;    // the edit stands; it will sync on the next successful save
+      }
       if (LAST_GOOD) DB = JSON.parse(LAST_GOOD);
-      banner('\u00c9chec : ' + e.message + ' \u2014 modification ANNUL\u00c9E.');
+      banner('\u00c9chec : ' + m + ' \u2014 modification ANNUL\u00c9E.');
       return false;
     }
+  }
+  async function retrySync() {
+    if (!PENDING_SYNC) return;
+    try {
+      await Drive.save(DB);
+      PENDING_SYNC = false; LAST_GOOD = JSON.stringify(DB);
+      banner(''); toast('Synchronis\u00e9 \u2601'); updateStatusBar();
+    } catch (e) {}
   }
 
   /* ---------- helpers ---------- */
@@ -192,8 +212,16 @@
   function updateStatusBar() {
     var bar = document.getElementById('gr-status-bar');
     if (!bar || !DB) return;
+    if (typeof PENDING_SYNC !== 'undefined' && PENDING_SYNC) {
+      bar.innerHTML = '<span class="gr-pill gr-pill-danger" title="Reconnectez-vous pour synchroniser">\u26a0 Non synchronis\u00e9</span>' + statusPills();
+      return;
+    }
+    bar.innerHTML = statusPills();
+    return;
+  }
+  function statusPills() {
     var g = getGuardrails();
-    if (!g.enabled) { bar.innerHTML = ''; return; }
+    if (!g.enabled) return '';
     var st = todayStats();
     var kz = g.killzones || {};
     var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
@@ -219,11 +247,9 @@
     }
     if (st.losses <= g.maxLossR) html += '<span class="gr-pill gr-pill-danger" title="Max loss atteint">\ud83d\udd34</span>';
 
-    // News alert countdown
     var newsAlert = document.getElementById('news-alert-pill');
     if (newsAlert) html += newsAlert.outerHTML;
-
-    bar.innerHTML = html;
+    return html;
   }
 
   /* ---------- NEWS ALERTS (10mn before High Impact) ---------- */
