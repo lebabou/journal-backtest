@@ -1,6 +1,7 @@
 /* Journal de backtest – interface. Données : GET/PUT /api/db (journal.json). */
 (function () {
   'use strict';
+  if (window.__OAUTH_FRAME__) return;
 
 
   const S = window.Stats;
@@ -65,6 +66,7 @@
           mergeDefaults(DB);
           banner(''); LAST_GOOD = JSON.stringify(DB);
           if (result.source === 'created') toast('Fichier cr\u00e9\u00e9 sur Google Drive');
+          if (result.source === 'local-pushed') toast('Modifications locales synchronis\u00e9es \u2601', 6000);
           updateAuthUI();
           return;
         }
@@ -107,6 +109,9 @@
     var btn = document.getElementById('auth-btn');
     var info = document.getElementById('auth-info');
     if (!btn) return;
+    var re = Drive.takeReturnError && Drive.takeReturnError();
+    if (re) banner('Erreur de connexion : ' + re);
+    if (Drive.isDirty && !Drive.isSignedIn() && Drive.isDirty()) { PENDING_SYNC = true; updateStatusBar(); }
     if (Drive.isSignedIn()) {
       btn.textContent = 'D\u00e9connexion';
       btn.onclick = function() { Drive.signOut(); };
@@ -132,7 +137,7 @@
     } catch (e) {
       var m = e && e.message ? e.message : String(e);
       // Auth or network problem: the change is already in the local cache, so keep it
-      var recoverable = /Connexion Google|expir|Non connect|Reconnexion|AUTH_REQUIRED|SILENT_FAILED|interaction_required|login_required|Failed to fetch|NetworkError|network/i.test(m);
+      var recoverable = /Connexion Google|expir|Non connect|Reconnexion|AUTH_REQUIRED|SILENT_FAILED|interaction_required|login_required|Google Drive a r|Failed to fetch|NetworkError|network/i.test(m);
       if (recoverable) {
         PENDING_SYNC = true;
         updateStatusBar();

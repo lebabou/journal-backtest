@@ -10,40 +10,51 @@
 
   var accessToken = null;
   var tokenExp = 0;              // epoch ms when the token dies
-  var fileId = null;             // Drive file ID of journal.json
+  var fileId = null;             // Drive file ID of the journal
   var onAuthChange = null;
   var DB_CACHE_KEY = '';
   var REMEMBER = 'drive_connected';   // survives a tab close, unlike the token
-  var pending = null;            // the ONE token request the app is currently waiting for
-  var seq = 0;
   var sessionLive = false;       // a token was obtained/restored during THIS page session
   var announced = false;         // onAuthChange(true) already delivered for the current session
-  var POPUP_GRACE_MS = 15000;    // a "popup closed" report can be a false alarm on mobile: wait before believing it
+  var renewing = null;           // the one silent renewal in flight
+  var returnError = '';          // error reported by Google when coming back from the login page
 
   function wasConnected() { try { return localStorage.getItem(REMEMBER) === '1'; } catch (e) { return false; } }
   function tokenValid() { return !!accessToken && tokenExp > Date.now() + 30000; }
-  function gisReady() { return !!(window.google && window.google.accounts && window.google.accounts.oauth2); }
+  function dirtyKey() { return 'drive_dirty_' + FILE_NAME; }
+  function isDirty() { try { return localStorage.getItem(dirtyKey()) === '1'; } catch (e) { return false; } }
+  function setDirty(on) { try { if (on) localStorage.setItem(dirtyKey(), '1'); else localStorage.removeItem(dirtyKey()); } catch (e) {} }
+  function rand() { var a = new Uint8Array(12); (window.crypto || window.msCrypto).getRandomValues(a); return Array.prototype.map.call(a, function(b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
 
-  function init(opts) {
-    CLIENT_ID = opts.clientId;
-    FILE_NAME = opts.fileName || 'journal-trading.json';
-    DB_CACHE_KEY = 'drive_cache_' + FILE_NAME;
-    onAuthChange = opts.onAuthChange || function() {};
-    // Nothing here ever talks to Google: no background request is started without a user action.
-    var saved = sessionStorage.getItem('drive_token');
-    if (saved) {
-      try {
-        var t = JSON.parse(saved);
-        if (t.expires_at > Date.now() + 30000) {
-          accessToken = t.access_token; tokenExp = t.expires_at; sessionLive = true; announced = true;
-        }
-      } catch (e) {}
-    }
+  function parseFragment(h) {
+    var out = {};
+    String(h || '').replace(/^#/, '').split('&').forEach(function(kv) {
+      var i = kv.indexOf('=');
+      if (i > 0) { try { out[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' ')); } catch (e) {} }
+    });
+    return out;
+  }
+
+  // The address Google sends the user back to: exactly the app's own page (must be an authorised redirect URI)
+  function appUrl() {
+    var p = location.pathname.replace(/index\.html$/, '');
+    if (!/\/$/.test(p)) p += '/';
+    return location.origin + p;
+  }
+  function authUrl(state, prompt) {
+    return 'https://accounts.google.com/o/oauth2/v2/auth' +
+      '?client_id=' + encodeURIComponent(CLIENT_ID) +
+      '&redirect_uri=' + encodeURIComponent(appUrl()) +
+      '&response_type=token' +
+      '&scope=' + encodeURIComponent(SCOPES) +
+      '&include_granted_scopes=true' +
+      '&state=' + encodeURIComponent(state) +
+      (prompt ? '&prompt=' + prompt : '');
   }
 
   function storeToken(resp) {
     accessToken = resp.access_token;
-    tokenExp = Date.now() + ((resp.expires_in || 3600) * 1000);
+    tokenExp = Date.now() + ((+resp.expires_in || 3600) * 1000);
     try {
       sessionStorage.setItem('drive_token', JSON.stringify({ access_token: accessToken, expires_at: tokenExp }));
       localStorage.setItem(REMEMBER, '1');
@@ -57,104 +68,99 @@
     onAuthChange(false);
   }
 
-  /* One token request = one private token client. Every callback below is bound to
-     THIS request, so a late answer from an older request can never cancel a newer one. */
-  function startRequest(interactive) {
-    var p = { seq: ++seq };
-    p.promise = new Promise(function(res, rej) { p.resolve = res; p.reject = rej; });
-    pending = p;
-    var mine = p.seq, grace = null;
-    function current() { return !!pending && pending.seq === mine; }
-    function settle(code) {
-      clearTimeout(grace);
-      if (!current()) return;                       // stale: ignore
-      var pp = pending; pending = null;
-      if (!tokenValid()) failAuth();
-      pp.reject(new Error(code));
-    }
-    try {
-      var client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: function(response) {
-          clearTimeout(grace);
-          if (response.error) { settle('AUTH_REQUIRED'); return; }
-          // a valid token is always welcome, even if it answers a request we already gave up on
-          storeToken(response);
-          fileId = null;
-          sessionLive = true;
-          if (current()) { var pp = pending; pending = null; pp.resolve(accessToken); }
-          if (!announced) { announced = true; onAuthChange(true); }   // only on a real (re)connection
-        },
-        error_callback: function(err) {
-          if (!current()) return;
-          if (err && err.type === 'popup_closed') {
-            // may be a false alarm (tab switch on mobile): give a late token a chance to arrive
-            clearTimeout(grace);
-            grace = setTimeout(function() { settle('POPUP_CLOSED'); }, POPUP_GRACE_MS);
-            return;
-          }
-          settle('POPUP_BLOCKED');
+  function init(opts) {
+    CLIENT_ID = opts.clientId;
+    FILE_NAME = opts.fileName || 'journal-trading.json';
+    DB_CACHE_KEY = 'drive_cache_' + FILE_NAME;
+    onAuthChange = opts.onAuthChange || function() {};
+    var saved = sessionStorage.getItem('drive_token');
+    if (saved) {
+      try {
+        var t = JSON.parse(saved);
+        if (t.expires_at > Date.now() + 30000) {
+          accessToken = t.access_token; tokenExp = t.expires_at; sessionLive = true; announced = true;
         }
-      });
-      client.requestAccessToken({ prompt: (interactive && !wasConnected()) ? 'consent' : '' });
-    } catch (e) {
-      if (current()) pending = null;
-      return Promise.reject(e);
+      } catch (e) {}
     }
-    setTimeout(function() { if (current()) settle('SILENT_FAILED'); }, interactive ? 180000 : 10000);
-    return p.promise;
-  }
-
-  /* Returns a valid token. interactive=true is for a user click and always takes
-     priority over any request still in flight. */
-  function ensureToken(interactive) {
-    if (tokenValid()) return Promise.resolve(accessToken);
-    if (!gisReady()) return Promise.reject(new Error('GIS_NOT_LOADED'));
-    if (pending) {
-      if (!interactive) return pending.promise;
-      var old = pending; pending = null; old.reject(new Error('SUPERSEDED'));
+    // Quiet reconnection in the background (hidden frame: no pop-up, nothing to block, nothing to click)
+    if (!init._boot) {
+      init._boot = true;
+      if (wasConnected() && !tokenValid()) {
+        setTimeout(function() {
+          ensureToken().then(function() {
+            if (!announced) { announced = true; onAuthChange(true); }
+          }).catch(function() {});
+        }, 700);
+      }
     }
-    return startRequest(interactive);
   }
 
-  function friendly(m) {
-    if (m === 'POPUP_BLOCKED') return 'La fen\u00eatre de connexion Google a \u00e9t\u00e9 bloqu\u00e9e. Autorisez les fen\u00eatres pop-up pour ce site, puis r\u00e9essayez.';
-    if (m === 'POPUP_CLOSED') return 'Connexion interrompue : la fen\u00eatre Google s\u2019est ferm\u00e9e avant la fin. R\u00e9essayez ; si elle affichait une erreur, notez son message.';
-    if (m === 'SILENT_FAILED') return 'Google n\u2019a pas r\u00e9pondu. R\u00e9essayez dans un instant.';
-    if (m === 'GIS_NOT_LOADED') return 'Google n\u2019est pas encore charg\u00e9. Patientez quelques secondes (ou rechargez la page) puis r\u00e9essayez.';
-    if (m === 'AUTH_REQUIRED') return 'Google a refus\u00e9 la connexion. V\u00e9rifiez que votre adresse est bien autoris\u00e9e, puis r\u00e9essayez.';
-    return m;
-  }
-
-  function signIn() {
-    if (tokenValid()) { announced = true; onAuthChange(true); return; }
-    if (!gisReady()) { onAuthChange(false, friendly('GIS_NOT_LOADED')); return; }
-    announced = false;                     // a successful click must reload the Drive data
-    ensureToken(true).catch(function(e) {
-      if (e && e.message === 'SUPERSEDED') return;
-      onAuthChange(false, friendly(e && e.message));
+  /* Silent renewal through a hidden frame (prompt=none). Works while the Google session is alive and
+     third-party cookies are allowed; otherwise it simply fails and the user is asked to click once. */
+  function silentRenew() {
+    return new Promise(function(resolve, reject) {
+      var st = 'r' + rand();
+      var frame = document.createElement('iframe');
+      frame.style.cssText = 'display:none;width:0;height:0;border:0';
+      var done = false, timer = null;
+      function finish(err) {
+        if (done) return; done = true;
+        window.removeEventListener('message', onMsg);
+        clearTimeout(timer);
+        try { frame.parentNode.removeChild(frame); } catch (e) {}
+        if (err) reject(new Error(err)); else resolve(accessToken);
+      }
+      function onMsg(ev) {
+        if (ev.origin !== location.origin || !ev.data || ev.data.type !== 'oauth_fragment') return;
+        var p = parseFragment(ev.data.hash);
+        if (p.state !== st) return;
+        if (p.access_token) { storeToken(p); sessionLive = true; finish(null); }
+        else finish('AUTH_REQUIRED');
+      }
+      window.addEventListener('message', onMsg);
+      timer = setTimeout(function() { finish('SILENT_FAILED'); }, 10000);
+      frame.src = authUrl(st, 'none');
+      (document.body || document.documentElement).appendChild(frame);
     });
   }
 
-  function signOut() {
-    if (accessToken && gisReady()) {
-      try { google.accounts.oauth2.revoke(accessToken); } catch (e) {}
+  function ensureToken() {
+    if (tokenValid()) return Promise.resolve(accessToken);
+    if (!(sessionLive || wasConnected())) return Promise.reject(new Error('AUTH_REQUIRED'));
+    if (!renewing) {
+      renewing = silentRenew().then(function(t) { renewing = null; return t; }, function(e) { renewing = null; throw e; });
     }
-    accessToken = null; tokenExp = 0; fileId = null; sessionLive = false; announced = false; pending = null;
+    return renewing;
+  }
+
+  // User click: full-page redirect to Google, then Google sends the user straight back here with the token.
+  // No pop-up, so nothing depends on a channel between two windows.
+  function signIn() {
+    if (tokenValid()) { announced = true; onAuthChange(true); return; }
+    var st = rand();
+    try {
+      sessionStorage.setItem('oauth_state', st);
+      sessionStorage.setItem('oauth_return', location.hash || '');
+    } catch (e) {}
+    location.assign(authUrl(st));
+  }
+
+  function signOut() {
+    accessToken = null; tokenExp = 0; fileId = null; sessionLive = false; announced = false;
     try { sessionStorage.removeItem('drive_token'); localStorage.removeItem(REMEMBER); } catch (e) {}
     onAuthChange(false);
   }
 
   function isSignedIn() {
-    // "signed in" while the token is merely stale but renewable on the next user action
     return tokenValid() || (sessionLive && wasConnected() && !!CLIENT_ID);
   }
 
-  // Authenticated fetch: renews the token on demand (inside the user's action) and retries once on a 401
+  function takeReturnError() { var e = returnError; returnError = ''; return e; }
+
+  // Authenticated fetch: renews the token quietly when needed and retries once on a 401
   function driveReq(url, opts, _retried) {
     opts = opts || {};
-    return ensureToken(false).then(function(tok) {
+    return ensureToken().then(function(tok) {
       var o = { method: opts.method, body: opts.body, headers: {} };
       Object.keys(opts.headers || {}).forEach(function(k) { o.headers[k] = opts.headers[k]; });
       o.headers['Authorization'] = 'Bearer ' + tok;
@@ -172,37 +178,36 @@
       return r;
     }).catch(function(e) {
       var m = (e && e.message) || '';
-      if (/^(SILENT_FAILED|AUTH_REQUIRED|POPUP_BLOCKED|POPUP_CLOSED|SUPERSEDED|GIS_NOT_LOADED)$/.test(m) ||
-          /interaction_required|login_required|consent_required|access_denied/i.test(m)) {
-        if (m !== 'SUPERSEDED' && !tokenValid()) failAuth();
+      if (/^(SILENT_FAILED|AUTH_REQUIRED)$/.test(m)) {
+        if (!tokenValid()) failAuth();
         return Promise.reject(new Error('Reconnexion Google n\u00e9cessaire. Cliquez sur \u00ab Connexion Google \u00bb, vos donn\u00e9es sont conserv\u00e9es sur cet appareil.'));
       }
       return Promise.reject(e);
     });
   }
 
-  // Find journal.json on Drive
+  // Every Drive answer is checked: an HTTP error is an error, never a silent "saved"
+  function jsonOk(r) {
+    if (!r.ok) throw new Error('Google Drive a r\u00e9pondu ' + r.status + '.');
+    return r.json();
+  }
+
+  // Find the journal on Drive
   function findFile() {
     if (fileId) return Promise.resolve(fileId);
     var q = encodeURIComponent("name='" + FILE_NAME + "' and trashed=false");
     return driveReq(DRIVE_API + '/files?q=' + q + '&spaces=drive&fields=files(id,name,modifiedTime)')
-      .then(function(r) { return r.json(); })
+      .then(jsonOk)
       .then(function(data) {
-        if (data.files && data.files.length > 0) {
-          fileId = data.files[0].id;
-          return fileId;
-        }
+        if (data.files && data.files.length > 0) { fileId = data.files[0].id; return fileId; }
         return null;
       });
   }
 
-  // Read file content
   function readFile(id) {
-    return driveReq(DRIVE_API + '/files/' + id + '?alt=media')
-      .then(function(r) { return r.json(); });
+    return driveReq(DRIVE_API + '/files/' + id + '?alt=media').then(jsonOk);
   }
 
-  // Create file
   function createFile(content) {
     var metadata = { name: FILE_NAME, mimeType: 'application/json' };
     var body = JSON.stringify(content, null, 1);
@@ -213,74 +218,91 @@
       '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
       body +
       '\r\n--' + boundary + '--';
-
     return driveReq(UPLOAD_API + '/files?uploadType=multipart&fields=id', {
       method: 'POST',
       headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
       body: multipart
-    }).then(function(r) { return r.json(); })
-      .then(function(data) { fileId = data.id; return data; });
+    }).then(jsonOk).then(function(data) { fileId = data.id; return data; });
   }
 
-  // Update file content
   function updateFile(id, content) {
-    var body = JSON.stringify(content, null, 1);
     return driveReq(UPLOAD_API + '/files/' + id + '?uploadType=media', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: body
-    }).then(function(r) { return r.json(); });
+      body: JSON.stringify(content, null, 1)
+    }).then(jsonOk);
   }
 
-  // Public API
+  function getCached() {
+    var cached = null;
+    try { cached = localStorage.getItem(DB_CACHE_KEY); } catch (e) {}
+    if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+    return null;
+  }
+
   function load(defaultDb) {
     if (!isSignedIn()) {
-      // Return cached version if available
-      var cached = localStorage.getItem(DB_CACHE_KEY);
-      if (cached) {
-        try { return Promise.resolve({ db: JSON.parse(cached), source: 'cache' }); }
-        catch(e) {}
-      }
+      var c = getCached();
+      if (c) return Promise.resolve({ db: c, source: 'cache' });
       return Promise.resolve({ db: defaultDb, source: 'default' });
     }
     return findFile().then(function(id) {
+      var cached = getCached(), dirty = isDirty() && !!cached;
       if (!id) {
-        // First time: create file on Drive with default data
-        return createFile(defaultDb).then(function() {
-          localStorage.setItem(DB_CACHE_KEY, JSON.stringify(defaultDb));
-          return { db: defaultDb, source: 'created' };
+        // first time: create the file (from unsynced local edits if there are any)
+        var seed = dirty ? cached : defaultDb;
+        return createFile(seed).then(function() {
+          try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(seed)); } catch (e) {}
+          setDirty(false);
+          return { db: seed, source: 'created' };
+        });
+      }
+      if (dirty) {
+        // edits made while disconnected are newer than Drive: send them up instead of overwriting them
+        return updateFile(id, cached).then(function() {
+          setDirty(false);
+          return { db: cached, source: 'local-pushed' };
         });
       }
       return readFile(id).then(function(db) {
-        localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db));
+        try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db)); } catch (e) {}
         return { db: db, source: 'drive' };
       });
     });
   }
 
   function save(db) {
-    // Always cache locally first, so nothing is lost even if the network call fails
+    // Always keep a local copy first, flagged as "not on Drive yet" until the upload succeeds
     try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db)); } catch (e) {}
+    setDirty(true);
     if (!isSignedIn()) {
-      return Promise.reject(new Error('Non connecté. Connectez-vous avec Google pour enregistrer.'));
+      return Promise.reject(new Error('Non connect\u00e9. Connectez-vous avec Google pour enregistrer.'));
     }
     return findFile().then(function(id) {
-      if (!id) {
-        return createFile(db);
-      }
-      return updateFile(id, db);
-    });
+      return id ? updateFile(id, db) : createFile(db);
+    }).then(function(r) { setDirty(false); return r; });
   }
 
-  // Get cached DB (for offline use)
-  function getCached() {
-    var cached = localStorage.getItem(DB_CACHE_KEY);
-    if (cached) { try { return JSON.parse(cached); } catch(e) {} }
-    return null;
-  }
+  /* Coming back from Google's login page: the address now carries #access_token=... (or #error=...).
+     Read it, clean the address bar, and restore the page the user was on. Runs before the app starts. */
+  (function captureReturn() {
+    var h = location.hash || '';
+    if (!/[#&](access_token|error)=/.test(h)) return;
+    if (window.__OAUTH_FRAME__) return;            // hidden renewal frame: its parent page handles it
+    var p = parseFragment(h), expect = null, back = '';
+    try {
+      expect = sessionStorage.getItem('oauth_state');
+      back = sessionStorage.getItem('oauth_return') || '';
+      sessionStorage.removeItem('oauth_state'); sessionStorage.removeItem('oauth_return');
+    } catch (e) {}
+    try { history.replaceState(null, '', location.pathname + location.search + back); } catch (e) {}
+    if (p.error) { returnError = 'Google a renvoy\u00e9 : ' + (p.error_description || p.error); return; }
+    if (expect && p.state !== expect) { returnError = 'R\u00e9ponse Google inattendue. R\u00e9essayez de vous connecter.'; return; }
+    if (p.access_token) { storeToken(p); sessionLive = true; announced = true; }
+  })();
 
   root.Drive = {
     init: init, signIn: signIn, signOut: signOut, isSignedIn: isSignedIn,
-    load: load, save: save, getCached: getCached
+    load: load, save: save, getCached: getCached, isDirty: isDirty, takeReturnError: takeReturnError
   };
 })(window);

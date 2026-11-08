@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="fr">
 <head>
+<script>
+/* Hidden renewal frame: hand the Google answer to the parent page and stop. The app must not start in here. */
+(function () {
+  if (window.top !== window.self && /[#&](access_token|error)=/.test(location.hash)) {
+    window.__OAUTH_FRAME__ = true;
+    try { window.parent.postMessage({ type: 'oauth_fragment', hash: location.hash }, location.origin); } catch (e) {}
+  }
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
@@ -37,7 +46,6 @@
 <div id="overlay" class="overlay" hidden><div class="modal" id="modal"></div></div>
 <div id="lightbox" class="lightbox" hidden></div>
 <div id="toast" class="toast" hidden></div>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="drive.js"></script>
 <script src="stats.js"></script>
 <script src="app.js"></script>
