@@ -8,36 +8,28 @@
   var DRIVE_API = 'https://www.googleapis.com/drive/v3';
   var UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 
-  var tokenClient = null;
   var accessToken = null;
   var tokenExp = 0;              // epoch ms when the token dies
   var fileId = null;             // Drive file ID of journal.json
   var onAuthChange = null;
   var DB_CACHE_KEY = '';
   var REMEMBER = 'drive_connected';   // survives a tab close, unlike the token
-  var pending = null;            // in-flight token request: { promise, resolve, reject, seq }
+  var pending = null;            // the ONE token request the app is currently waiting for
   var seq = 0;
-  var refreshTimer = null;
   var sessionLive = false;       // a token was obtained/restored during THIS page session
   var announced = false;         // onAuthChange(true) already delivered for the current session
+  var POPUP_GRACE_MS = 15000;    // a "popup closed" report can be a false alarm on mobile: wait before believing it
 
   function wasConnected() { try { return localStorage.getItem(REMEMBER) === '1'; } catch (e) { return false; } }
   function tokenValid() { return !!accessToken && tokenExp > Date.now() + 30000; }
-
-  function whenGoogleReady(cb) {
-    var tries = 0;
-    (function poll() {
-      if (window.google && window.google.accounts && window.google.accounts.oauth2) return cb();
-      if (++tries < 40) setTimeout(poll, 250);   // wait up to ~10 s for the Google script
-    })();
-  }
+  function gisReady() { return !!(window.google && window.google.accounts && window.google.accounts.oauth2); }
 
   function init(opts) {
     CLIENT_ID = opts.clientId;
     FILE_NAME = opts.fileName || 'journal-trading.json';
     DB_CACHE_KEY = 'drive_cache_' + FILE_NAME;
     onAuthChange = opts.onAuthChange || function() {};
-
+    // Nothing here ever talks to Google: no background request is started without a user action.
     var saved = sessionStorage.getItem('drive_token');
     if (saved) {
       try {
@@ -46,22 +38,6 @@
           accessToken = t.access_token; tokenExp = t.expires_at; sessionLive = true; announced = true;
         }
       } catch (e) {}
-    }
-    scheduleRefresh();
-
-    if (!init._hooked) {
-      init._hooked = true;
-      // coming back to the tab after a long pause: renew quietly, only if we were connected in this session
-      document.addEventListener('visibilitychange', function() {
-        if (!document.hidden && sessionLive && wasConnected() && !tokenValid()) {
-          ensureToken(false).catch(function() {});
-        }
-      });
-      // cold start after a previous connection: ONE quiet background attempt.
-      // It never blocks the UI and never blocks the user's own click on "Connexion Google".
-      if (wasConnected() && !tokenValid()) {
-        whenGoogleReady(function() { ensureToken(false, 8000).catch(function() {}); });
-      }
     }
   }
 
@@ -72,96 +48,88 @@
       sessionStorage.setItem('drive_token', JSON.stringify({ access_token: accessToken, expires_at: tokenExp }));
       localStorage.setItem(REMEMBER, '1');
     } catch (e) {}
-    scheduleRefresh();
-  }
-
-  function scheduleRefresh() {
-    clearTimeout(refreshTimer);
-    if (!tokenExp) return;
-    var delay = tokenExp - Date.now() - 5 * 60 * 1000;   // renew 5 min before expiry
-    if (delay < 0) delay = 0;
-    if (delay > 24 * 3600 * 1000) return;
-    refreshTimer = setTimeout(function() {
-      if (sessionLive && wasConnected()) ensureToken(false).catch(function() {});
-    }, delay);
   }
 
   // The session is really gone: stop pretending we are connected (but remember the user was)
   function failAuth() {
     accessToken = null; tokenExp = 0; sessionLive = false; announced = false;
-    clearTimeout(refreshTimer);
     try { sessionStorage.removeItem('drive_token'); } catch (e) {}
     onAuthChange(false);
   }
 
-  function initTokenClient() {
-    if (tokenClient) return true;
-    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) return false;
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: function(response) {
-        var p = pending;
-        // ignore a late answer that belongs to an older, superseded request
-        if (p && response.state !== undefined && String(response.state) !== String(p.seq)) return;
-        pending = null;
-        if (response.error) {
-          if (!tokenValid()) failAuth();     // a failed background renewal must not drop a still-valid token
-          if (p) p.reject(new Error('AUTH_REQUIRED'));
-          return;
-        }
-        storeToken(response);
-        fileId = null;
-        sessionLive = true;
-        if (p) p.resolve(accessToken);
-        if (!announced) { announced = true; onAuthChange(true); }   // only on a real (re)connection, never on a silent renewal
-      },
-      error_callback: function(err) {      // popup blocked / closed by the user
-        var p = pending; pending = null;
-        if (!tokenValid()) failAuth();
-        if (p) p.reject(new Error(err && err.type === 'popup_closed' ? 'POPUP_CLOSED' : 'POPUP_BLOCKED'));
-      }
-    });
-    return true;
-  }
-
-  /* Returns a valid token. interactive=true is meant for a user click and always
-     takes priority over any silent request still in flight. */
-  function ensureToken(interactive, timeoutMs) {
-    if (tokenValid()) return Promise.resolve(accessToken);
-    if (!initTokenClient()) return Promise.reject(new Error('GIS_NOT_LOADED'));
-    if (pending) {
-      if (!interactive) return pending.promise;
-      var old = pending; pending = null; old.reject(new Error('SUPERSEDED'));   // a click must never wait behind a silent request
-    }
+  /* One token request = one private token client. Every callback below is bound to
+     THIS request, so a late answer from an older request can never cancel a newer one. */
+  function startRequest(interactive) {
     var p = { seq: ++seq };
     p.promise = new Promise(function(res, rej) { p.resolve = res; p.reject = rej; });
     pending = p;
+    var mine = p.seq, grace = null;
+    function current() { return !!pending && pending.seq === mine; }
+    function settle(code) {
+      clearTimeout(grace);
+      if (!current()) return;                       // stale: ignore
+      var pp = pending; pending = null;
+      if (!tokenValid()) failAuth();
+      pp.reject(new Error(code));
+    }
     try {
-      tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '', state: String(p.seq) });
+      var client = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: function(response) {
+          clearTimeout(grace);
+          if (response.error) { settle('AUTH_REQUIRED'); return; }
+          // a valid token is always welcome, even if it answers a request we already gave up on
+          storeToken(response);
+          fileId = null;
+          sessionLive = true;
+          if (current()) { var pp = pending; pending = null; pp.resolve(accessToken); }
+          if (!announced) { announced = true; onAuthChange(true); }   // only on a real (re)connection
+        },
+        error_callback: function(err) {
+          if (!current()) return;
+          if (err && err.type === 'popup_closed') {
+            // may be a false alarm (tab switch on mobile): give a late token a chance to arrive
+            clearTimeout(grace);
+            grace = setTimeout(function() { settle('POPUP_CLOSED'); }, POPUP_GRACE_MS);
+            return;
+          }
+          settle('POPUP_BLOCKED');
+        }
+      });
+      client.requestAccessToken({ prompt: (interactive && !wasConnected()) ? 'consent' : '' });
     } catch (e) {
-      pending = null;
+      if (current()) pending = null;
       return Promise.reject(e);
     }
-    var limit = timeoutMs || (interactive ? 180000 : 10000);
-    setTimeout(function() {
-      if (pending === p) { pending = null; p.reject(new Error('SILENT_FAILED')); }
-    }, limit);
+    setTimeout(function() { if (current()) settle('SILENT_FAILED'); }, interactive ? 180000 : 10000);
     return p.promise;
+  }
+
+  /* Returns a valid token. interactive=true is for a user click and always takes
+     priority over any request still in flight. */
+  function ensureToken(interactive) {
+    if (tokenValid()) return Promise.resolve(accessToken);
+    if (!gisReady()) return Promise.reject(new Error('GIS_NOT_LOADED'));
+    if (pending) {
+      if (!interactive) return pending.promise;
+      var old = pending; pending = null; old.reject(new Error('SUPERSEDED'));
+    }
+    return startRequest(interactive);
   }
 
   function friendly(m) {
     if (m === 'POPUP_BLOCKED') return 'La fen\u00eatre de connexion Google a \u00e9t\u00e9 bloqu\u00e9e. Autorisez les fen\u00eatres pop-up pour ce site, puis r\u00e9essayez.';
-    if (m === 'POPUP_CLOSED') return 'Connexion annul\u00e9e.';
+    if (m === 'POPUP_CLOSED') return 'Connexion interrompue : la fen\u00eatre Google s\u2019est ferm\u00e9e avant la fin. R\u00e9essayez ; si elle affichait une erreur, notez son message.';
     if (m === 'SILENT_FAILED') return 'Google n\u2019a pas r\u00e9pondu. R\u00e9essayez dans un instant.';
-    if (m === 'GIS_NOT_LOADED') return 'Google n\u2019est pas charg\u00e9. V\u00e9rifiez votre connexion internet puis rechargez la page.';
-    if (m === 'AUTH_REQUIRED') return 'Google a refus\u00e9 la connexion. R\u00e9essayez.';
+    if (m === 'GIS_NOT_LOADED') return 'Google n\u2019est pas encore charg\u00e9. Patientez quelques secondes (ou rechargez la page) puis r\u00e9essayez.';
+    if (m === 'AUTH_REQUIRED') return 'Google a refus\u00e9 la connexion. V\u00e9rifiez que votre adresse est bien autoris\u00e9e, puis r\u00e9essayez.';
     return m;
   }
 
   function signIn() {
     if (tokenValid()) { announced = true; onAuthChange(true); return; }
-    if (!initTokenClient()) { onAuthChange(false, friendly('GIS_NOT_LOADED')); return; }
+    if (!gisReady()) { onAuthChange(false, friendly('GIS_NOT_LOADED')); return; }
     announced = false;                     // a successful click must reload the Drive data
     ensureToken(true).catch(function(e) {
       if (e && e.message === 'SUPERSEDED') return;
@@ -170,21 +138,20 @@
   }
 
   function signOut() {
-    if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
+    if (accessToken && gisReady()) {
       try { google.accounts.oauth2.revoke(accessToken); } catch (e) {}
     }
-    accessToken = null; tokenExp = 0; fileId = null; sessionLive = false; announced = false;
-    clearTimeout(refreshTimer);
+    accessToken = null; tokenExp = 0; fileId = null; sessionLive = false; announced = false; pending = null;
     try { sessionStorage.removeItem('drive_token'); localStorage.removeItem(REMEMBER); } catch (e) {}
     onAuthChange(false);
   }
 
   function isSignedIn() {
-    // "signed in" while the token is merely stale but silently renewable in this session
+    // "signed in" while the token is merely stale but renewable on the next user action
     return tokenValid() || (sessionLive && wasConnected() && !!CLIENT_ID);
   }
 
-  // Authenticated fetch: renews the token once and retries on a 401
+  // Authenticated fetch: renews the token on demand (inside the user's action) and retries once on a 401
   function driveReq(url, opts, _retried) {
     opts = opts || {};
     return ensureToken(false).then(function(tok) {
@@ -196,7 +163,7 @@
       if (r.status === 401 && !_retried) {
         accessToken = null; tokenExp = 0;
         try { sessionStorage.removeItem('drive_token'); } catch (e) {}
-        return driveReq(url, opts, true);          // one silent retry
+        return driveReq(url, opts, true);
       }
       if (r.status === 401) {
         failAuth();
@@ -207,7 +174,7 @@
       var m = (e && e.message) || '';
       if (/^(SILENT_FAILED|AUTH_REQUIRED|POPUP_BLOCKED|POPUP_CLOSED|SUPERSEDED|GIS_NOT_LOADED)$/.test(m) ||
           /interaction_required|login_required|consent_required|access_denied/i.test(m)) {
-        if (!tokenValid()) failAuth();
+        if (m !== 'SUPERSEDED' && !tokenValid()) failAuth();
         return Promise.reject(new Error('Reconnexion Google n\u00e9cessaire. Cliquez sur \u00ab Connexion Google \u00bb, vos donn\u00e9es sont conserv\u00e9es sur cet appareil.'));
       }
       return Promise.reject(e);
