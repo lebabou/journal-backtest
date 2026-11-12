@@ -32,6 +32,14 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 .progress{height:4px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden}
 .progress-fill{height:100%;background:var(--green);transition:width .3s}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
+.item-wrap{border-bottom:1px solid var(--line)}
+.item-wrap:last-child{border-bottom:none}
+.item-wrap .item{border-bottom:none;padding-bottom:4px}
+.item-wrap.done .item{color:var(--muted);text-decoration:line-through}
+.item-note{display:block;width:calc(100% - 42px);margin:0 14px 10px 42px;padding:7px 9px;font:inherit;font-size:13px;line-height:1.4;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;resize:none;overflow:hidden;min-height:38px}
+.item-note:focus{outline:none;border-color:var(--accent)}
+.item-note::placeholder{color:var(--muted)}
+.item-wrap.done .item-note{text-decoration:none;color:var(--text)}
 </style>
 </head>
 <body>
@@ -46,109 +54,122 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 <script>
 (function() {
   'use strict';
-  var CACHE_KEYS = ['drive_cache_journal-backtest.json', 'drive_cache_journal-trading.json'];
-  var CHECK_KEY = 'checklist_state';
+  // This page lives in /journal-trading/ or /journal-backtest/: read THAT journal first
+  // (both journals share the browser storage of lebabou.github.io).
+  var APP = /journal-trading/.test(location.pathname) ? 'journal-trading' : 'journal-backtest';
+  var OTHER = APP === 'journal-trading' ? 'journal-backtest' : 'journal-trading';
+  var CACHE_KEYS = ['drive_cache_' + APP + '.json', 'drive_cache_' + OTHER + '.json'];
   var plan = null;
 
-  // Load trading plan from localStorage (shared with main app)
+  function activeOf(db) {
+    if (!db) return null;
+    if (db.tradingPlans && db.tradingPlans.length) {
+      var act = db.tradingPlans.filter(function(p) { return p.id === db.activePlanId; })[0] || db.tradingPlans[0];
+      if (act && act.sections && act.sections.length) return act;
+    }
+    if (db.tradingPlan && db.tradingPlan.sections && db.tradingPlan.sections.length) return db.tradingPlan;
+    return null;
+  }
   function loadPlan() {
     for (var i = 0; i < CACHE_KEYS.length; i++) {
-      try {
-        var db = JSON.parse(localStorage.getItem(CACHE_KEYS[i]));
-        if (!db) continue;
-        // follow the active plan from the list when present
-        if (db.tradingPlans && db.tradingPlans.length) {
-          var act = db.tradingPlans.filter(function(p) { return p.id === db.activePlanId; })[0] || db.tradingPlans[0];
-          if (act && act.sections && act.sections.length) return act;
-        }
-        if (db.tradingPlan && db.tradingPlan.sections && db.tradingPlan.sections.length) {
-          return db.tradingPlan;
-        }
-      } catch(e) {}
+      try { var p = activeOf(JSON.parse(localStorage.getItem(CACHE_KEYS[i]))); if (p) return p; } catch (e) {}
     }
     return null;
   }
-  // Also try fetching journal.json if localStorage is empty
   function loadPlanAsync(cb) {
     var p = loadPlan();
     if (p) return cb(p);
-    fetch('journal.json').then(function(r) { return r.json(); }).then(function(db) {
-      if (db && db.tradingPlans && db.tradingPlans.length) {
-        var act = db.tradingPlans.filter(function(p) { return p.id === db.activePlanId; })[0] || db.tradingPlans[0];
-        cb(act);
-      } else if (db && db.tradingPlan) cb(db.tradingPlan);
-      else cb(null);
-    }).catch(function() { cb(null); });
+    fetch('journal.json').then(function(r) { return r.json(); }).then(function(db) { cb(activeOf(db)); }).catch(function() { cb(null); });
   }
 
-  // Load/save check state
-  function loadChecks() {
-    try { return JSON.parse(localStorage.getItem(CHECK_KEY)) || {}; } catch(e) { return {}; }
+  // Ticks and notes are kept per journal AND per plan, so two plans (or two journals) never mix
+  function stateKey() { return 'checklist_v2:' + APP + ':' + ((plan && (plan.id || plan.name)) || 'default'); }
+  function loadState() {
+    try {
+      var s = JSON.parse(localStorage.getItem(stateKey()));
+      if (s && s.checks && s.notes) return s;
+    } catch (e) {}
+    return { checks: {}, notes: {} };
   }
-  function saveChecks(state) {
-    localStorage.setItem(CHECK_KEY, JSON.stringify(state));
-  }
+  function saveState(s) { try { localStorage.setItem(stateKey(), JSON.stringify(s)); } catch (e) {} }
 
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  function grow(ta) { ta.style.height = 'auto'; ta.style.height = Math.max(38, ta.scrollHeight) + 'px'; }
+
+  // Built ONCE; ticking or typing only updates what changed (no rebuild, so a note being typed is never lost)
   function render() {
     if (!plan) plan = loadPlan();
     if (!plan) {
       document.getElementById('app').innerHTML = '<div class="empty">No trading plan found.<br><br>Open your journal app first, go to the Trading Plan tab, and make sure you have sections saved. Then come back here.</div>';
       return;
     }
-    var checks = loadChecks();
-    var total = 0, done = 0;
-    var html = '';
-
+    var st = loadState(), html = '';
     plan.sections.forEach(function(sec, si) {
-      var secDone = 0;
       var items = '';
       sec.items.forEach(function(item, ii) {
-        var key = si + '-' + ii;
-        var checked = checks[key] || false;
-        total++;
-        if (checked) { done++; secDone++; }
-        items += '<label class="item' + (checked ? ' done' : '') + '">' +
-          '<input type="checkbox" data-key="' + key + '"' + (checked ? ' checked' : '') + '>' +
-          '<span>' + esc(item) + '</span></label>';
+        var key = si + '-' + ii, checked = !!st.checks[key], note = st.notes[key] || '';
+        items += '<div class="item-wrap' + (checked ? ' done' : '') + '" data-key="' + key + '" data-sec="' + si + '">' +
+          '<label class="item"><input type="checkbox" data-key="' + key + '"' + (checked ? ' checked' : '') + '>' +
+          '<span>' + esc(item) + '</span></label>' +
+          '<textarea class="item-note" data-key="' + key + '" rows="1" placeholder="Note pour ce point\u2026">' + esc(note) + '</textarea>' +
+          '</div>';
       });
       html += '<div class="section"><div class="section-head">' + esc(sec.title) +
-        '<span class="count">' + secDone + '/' + sec.items.length + '</span></div>' + items + '</div>';
+        '<span class="count" data-sec="' + si + '"></span></div>' + items + '</div>';
     });
-
     if (plan.notes && plan.notes.length) {
       html += '<div class="notes"><h2>\ud83d\udcdd Trading Notes</h2><ul>';
       plan.notes.forEach(function(n) { html += '<li>' + esc(n) + '</li>'; });
       html += '</ul></div>';
     }
-
     document.getElementById('app').innerHTML = html;
     if (plan.name) document.getElementById('cl-name').textContent = plan.name;
-    document.getElementById('pbar').style.width = (total ? (done / total * 100) : 0) + '%';
+    refreshCounts();
 
-    // Event listeners
-    document.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+    Array.prototype.forEach.call(document.querySelectorAll('input[type=checkbox][data-key]'), function(cb) {
       cb.onchange = function() {
-        var s = loadChecks();
-        s[cb.dataset.key] = cb.checked;
-        saveChecks(s);
-        render();
+        var s = loadState();
+        if (cb.checked) s.checks[cb.dataset.key] = true; else delete s.checks[cb.dataset.key];
+        saveState(s);
+        cb.closest('.item-wrap').classList.toggle('done', cb.checked);
+        refreshCounts();
       };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('textarea.item-note'), function(ta) {
+      grow(ta);
+      var t = null;
+      ta.oninput = function() {
+        grow(ta);
+        clearTimeout(t);
+        t = setTimeout(function() {
+          var s = loadState(), v = ta.value;
+          if (v.trim()) s.notes[ta.dataset.key] = v; else delete s.notes[ta.dataset.key];
+          saveState(s);
+        }, 250);
+      };
+      ta.onblur = function() { ta.oninput(); };
     });
   }
 
-  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function refreshCounts() {
+    var total = 0, done = 0;
+    plan.sections.forEach(function(sec, si) {
+      var n = sec.items.length, d = document.querySelectorAll('.item-wrap.done[data-sec="' + si + '"]').length;
+      total += n; done += d;
+      var c = document.querySelector('.count[data-sec="' + si + '"]');
+      if (c) c.textContent = d + '/' + n;
+    });
+    document.getElementById('pbar').style.width = (total ? (done / total * 100) : 0) + '%';
+  }
 
   document.getElementById('reset').onclick = function() {
-    if (confirm('Reset all checkboxes?')) {
-      saveChecks({});
+    if (confirm('Effacer toutes les coches et toutes les notes de cette checklist (nouveau trade) ?')) {
+      saveState({ checks: {}, notes: {} });
       render();
     }
   };
 
-  loadPlanAsync(function(p) {
-    if (p) { plan = p; render(); }
-    else render();
-  });
+  loadPlanAsync(function(p) { plan = p; render(); });
 })();
 </script>
 </body>

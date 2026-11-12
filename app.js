@@ -1571,27 +1571,6 @@
       return '<option value="' + inst.pipValue + '" data-name="' + esc(inst.name) + '">' + esc(inst.name) + ' ($' + inst.pipValue + '/pip)</option>';
     }).join('');
 
-    var sentimentRows = [
-      {name:'US500 (risk appetite)', bull:'Risk On', bear:'Risk Off'},
-      {name:'DXY (liquidity)', bull:'Risk Off', bear:'Risk On'},
-      {name:'US10Y (core bond signals)', bull:'Risk On / Strong USD', bear:'Risk Off / Weak USD'},
-      {name:'Gold (fear & risk aversion)', bull:'Risk Off', bear:'Risk On'},
-      {name:'VIX (market stress)', bull:'Risk Off > 20', bear:'Risk On < 20'},
-      {name:'OIL WTI (growth expectation)', bull:'Risk On', bear:'Risk Off'},
-      {name:'AUDJPY (sentiment thermometer)', bull:'Risk On', bear:'Risk Off'}
-    ];
-
-    var sentimentHTML = sentimentRows.map(function(row, i) {
-      return '<tr>' +
-        '<td>' + esc(row.name) + '</td>' +
-        '<td><select class="sent-sel" data-i="' + i + '" data-tf="w1"><option value="0">-</option><option value="1">\u2191 Up</option><option value="-1">\u2193 Down</option></select></td>' +
-        '<td><select class="sent-sel" data-i="' + i + '" data-tf="d1"><option value="0">-</option><option value="1">\u2191 Up</option><option value="-1">\u2193 Down</option></select></td>' +
-        '<td><select class="sent-sel" data-i="' + i + '" data-tf="h4"><option value="0">-</option><option value="1">\u2191 Up</option><option value="-1">\u2193 Down</option></select></td>' +
-        '<td class="num sent-sub" data-i="' + i + '">0</td>' +
-        '<td class="muted small">' + esc(row.bull) + '</td>' +
-        '<td class="muted small">' + esc(row.bear) + '</td>' +
-        '</tr>';
-    }).join('');
 
     $('#main').innerHTML =
       '<h1>\ud83e\uddee Calculateur de position</h1>' +
@@ -1608,20 +1587,7 @@
         '<div class="calc-result"><div class="calc-result-label">LOT SIZE</div><div class="calc-result-value" id="c-lot">0.00</div></div>' +
       '</div>' +
       '<div class="actions" style="margin-top:10px"><button class="btn" id="c-save">Enregistrer Account Size & Risk %</button></div>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h2 style="margin-top:0">\ud83c\udf21\ufe0f Risk Market Sentiment Dashboard</h2>' +
-      '<p class="muted small">Scoring : Up = +1, Down = -1. Certains indicateurs sont invers\u00e9s (DXY, US10Y, Gold, VIX).<br>' +
-      'Total : <b>+3 \u00e0 +6 \u2192 RISK-ON</b> | <b>-3 \u00e0 -6 \u2192 RISK-OFF</b> | <b>-2 \u00e0 +2 \u2192 Neutral</b></p>' +
-      '<div class="twrap" style="max-height:none"><table><thead><tr>' +
-      '<th>Indicator</th><th>W1</th><th>D1</th><th>H4</th><th class="num">Sub</th><th>Bullish Effect</th><th>Bearish Effect</th>' +
-      '</tr></thead><tbody>' + sentimentHTML + '</tbody>' +
-      '<tfoot><tr><td colspan="4" style="text-align:right;font-weight:700">TOTAL SCORE</td>' +
-      '<td class="num" id="sent-total" style="font-size:20px;font-weight:700">0</td>' +
-      '<td colspan="2" id="sent-verdict" style="font-weight:700">-</td></tr></tfoot></table></div>' +
       '</div>';
-
     // Position calculator logic
     function calcLot() {
       var account = +$('#c-account').value || 0;
@@ -1647,39 +1613,8 @@
       DB.calculator.riskPercent = +$('#c-risk').value || 0.06;
       await save('Param\u00e8tres du calculateur enregistr\u00e9s');
     };
-
-    // Sentiment dashboard logic
-    var INVERT = [false, true, true, true, true, false, false]; // DXY, US10Y, Gold, VIX are inverted
-
-    function calcSentiment() {
-      var total = 0;
-      document.querySelectorAll('.sent-sub').forEach(function(cell) {
-        var i = +cell.dataset.i;
-        var sub = 0;
-        document.querySelectorAll('.sent-sel[data-i="' + i + '"]').forEach(function(sel) {
-          var v = +sel.value;
-          sub += INVERT[i] ? -v : v;
-        });
-        cell.textContent = sub > 0 ? '+' + sub : sub;
-        cell.className = 'num sent-sub ' + (sub > 0 ? 'pos' : sub < 0 ? 'neg' : '');
-        total += sub;
-      });
-
-      var el = $('#sent-total');
-      el.textContent = total > 0 ? '+' + total : total;
-      el.className = 'num ' + (total >= 3 ? 'pos' : total <= -3 ? 'neg' : '');
-
-      var verdict = $('#sent-verdict');
-      if (total >= 3) { verdict.textContent = '\ud83d\udfe2 RISK-ON'; verdict.style.color = 'var(--win)'; }
-      else if (total <= -3) { verdict.textContent = '\ud83d\udd34 RISK-OFF'; verdict.style.color = 'var(--loss)'; }
-      else { verdict.textContent = '\ud83d\udfe1 Neutral / Choppy'; verdict.style.color = 'var(--be)'; }
-    }
-
-    document.querySelectorAll('.sent-sel').forEach(function(sel) {
-      sel.onchange = calcSentiment;
-    });
-    calcSentiment();
   }
+
 
 
 
