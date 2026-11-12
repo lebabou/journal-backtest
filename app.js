@@ -224,7 +224,10 @@
     if (!DB || !DB.trades) return { day: null, items: [] };
     var today = todayISO(), floor = addDaysISO(today, -7), seen = {};
     var list = DB.trades.filter(function(t) { return t.improvement && String(t.improvement).trim(); }).map(function(t) {
-      return { n: t.n, text: String(t.improvement).trim(), day: t.improvementAt || t.date, instrument: t.instrument };
+      // Reference day = the day of the TRADE (an improvement noted the next morning still belongs to that trading day).
+      // Backtest trades carry old dates (e.g. 2024): for those, the day the improvement was WRITTEN is used instead.
+      var recentTrade = t.date && t.date >= floor && t.date <= today;
+      return { n: t.n, text: String(t.improvement).trim(), day: recentTrade ? t.date : (t.improvementAt || t.date), instrument: t.instrument };
     });
     var days = list.map(function(x) { return x.day; }).filter(function(d) { return d && d < today && d >= floor; }).sort();
     if (!days.length) return { day: null, items: [] };
@@ -278,7 +281,7 @@
     } else {
       var ci = chosenImprovement(); if (!ci) return;
       pop.innerHTML = '<div class="fp-head">\ud83d\udd27 Am\u00e9lioration pour aujourd\u2019hui</div>' +
-        '<div class="fp-foot">Not\u00e9e le ' + esc(fmtDayFR(ci.day)) + (ci.items.length > 1 ? ' \u2014 choisissez celle \u00e0 afficher' : '') + '</div>' +
+        '<div class="fp-foot">Issue de la journ\u00e9e du ' + esc(fmtDayFR(ci.day)) + (ci.items.length > 1 ? ' \u2014 choisissez celle \u00e0 afficher' : '') + '</div>' +
         ci.items.map(function(it) {
           return '<label class="fp-opt"><input type="radio" name="fp-pick" value="' + it.n + '"' + (it.n === ci.current.n ? ' checked' : '') + '>' +
             '<span>' + esc(it.text) + '<small>trade #' + it.n + (it.instrument ? ' \u00b7 ' + esc(it.instrument) : '') + '</small></span></label>';
