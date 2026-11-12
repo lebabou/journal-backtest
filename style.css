@@ -242,3 +242,16 @@ tr.low td{opacity:.5}
 .ms-opt{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;font-size:13px!important;text-transform:none!important;color:var(--text)!important;cursor:pointer}
 .ms-opt:hover{background:var(--panel2)}
 .ms-opt input{margin:0;width:auto}
+
+/* Focus pills: yesterday's improvement + weekly priority */
+.gr-pill-focus{background:rgba(168,85,247,.14);color:#a855f7;cursor:pointer;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.gr-pill-prio{background:rgba(14,165,233,.14);color:#0ea5e9;cursor:pointer;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.gr-pill-focus b{font-weight:800;margin-left:2px}
+.focus-pop{position:absolute;z-index:1000;width:320px;max-width:calc(100vw - 16px);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:10px}
+.fp-head{font-weight:700;font-size:13px;margin-bottom:2px}
+.fp-foot{font-size:11px;color:var(--muted);margin-bottom:8px}
+.fp-text{font-size:14px;line-height:1.45;margin:6px 0 8px}
+.fp-opt{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:7px;cursor:pointer;font-size:13px;line-height:1.4}
+.fp-opt:hover{background:var(--panel2)}
+.fp-opt input{margin-top:3px}
+.fp-opt small{display:block;color:var(--muted);font-size:11px;margin-top:2px}

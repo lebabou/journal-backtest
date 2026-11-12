@@ -215,6 +215,100 @@
 
 
   /* ---------- STATUS BAR (guardrails + news alerts) ---------- */
+
+  /* ---------- FOCUS PILLS: yesterday's improvement + this week's priority ---------- */
+  function trunc(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
+  function fmtDayFR(iso) { return new Date(iso + 'T00:00:00Z').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+  // Improvements written on the most recent day BEFORE today (within a week, so weekends and days off are covered)
+  function improvementsForToday() {
+    if (!DB || !DB.trades) return { day: null, items: [] };
+    var today = todayISO(), floor = addDaysISO(today, -7), seen = {};
+    var list = DB.trades.filter(function(t) { return t.improvement && String(t.improvement).trim(); }).map(function(t) {
+      return { n: t.n, text: String(t.improvement).trim(), day: t.improvementAt || t.date, instrument: t.instrument };
+    });
+    var days = list.map(function(x) { return x.day; }).filter(function(d) { return d && d < today && d >= floor; }).sort();
+    if (!days.length) return { day: null, items: [] };
+    var day = days[days.length - 1];
+    var items = list.filter(function(x) {
+      if (x.day !== day || seen[x.text.toLowerCase()]) return false;
+      seen[x.text.toLowerCase()] = true; return true;
+    });
+    return { day: day, items: items };
+  }
+  function chosenImprovement() {
+    var f = improvementsForToday();
+    if (!f.items.length) return null;
+    var pick = (DB && DB.focusPick) || {};
+    var it = pick.day === f.day ? f.items.filter(function(x) { return x.n === pick.n; })[0] : null;
+    return { day: f.day, items: f.items, current: it || f.items[0], index: it ? f.items.indexOf(it) : 0 };
+  }
+  // The weekly review's "single focus for next week", shown during the following week
+  function weeklyPriority() {
+    if (!DB || !DB.reviews) return null;
+    var thisMon = weekStartISO(), lastMon = addDaysISO(thisMon, -7);
+    var wk = DB.reviews.filter(function(r) { return r.type === 'weekly' && r.answers && String(r.answers.q4 || '').trim(); });
+    // 1) the review of last week (live journal)
+    var byPeriod = wk.filter(function(r) { return r.start === lastMon; })[0];
+    // 2) otherwise a review WRITTEN last week, whatever week it covers (backtest of past weeks)
+    var written = wk.filter(function(r) { return r.savedAt && r.savedAt >= lastMon && r.savedAt < thisMon; })
+      .sort(function(a, b) { return a.savedAt < b.savedAt ? 1 : -1; })[0];
+    var r = byPeriod || written;
+    return r ? { text: String(r.answers.q4).trim(), start: r.start } : null;
+  }
+  function focusPills() {
+    var h = '', ci = chosenImprovement(), wp = weeklyPriority();
+    if (ci) {
+      h += '<span class="gr-pill gr-pill-focus" id="focus-pill" role="button" tabindex="0" title="' + esc(ci.current.text) + '">\ud83d\udd27 ' +
+        esc(trunc(ci.current.text, 40)) + (ci.items.length > 1 ? ' <b>' + (ci.index + 1) + '/' + ci.items.length + ' \u25be</b>' : '') + '</span>';
+    }
+    if (wp) {
+      h += '<span class="gr-pill gr-pill-prio" id="prio-pill" role="button" tabindex="0" title="' + esc(wp.text) + '">\ud83d\udccc ' + esc(trunc(wp.text, 40)) + '</span>';
+    }
+    return h;
+  }
+  function closeFocusPop() { var p = document.getElementById('focus-pop'); if (p) p.parentNode.removeChild(p); }
+  function openFocusPop(anchor, kind) {
+    closeFocusPop();
+    var pop = document.createElement('div');
+    pop.id = 'focus-pop'; pop.className = 'focus-pop';
+    if (kind === 'prio') {
+      var wp = weeklyPriority(); if (!wp) return;
+      pop.innerHTML = '<div class="fp-head">\ud83d\udccc Priorit\u00e9 unique de la semaine</div><div class="fp-text">' + esc(wp.text) + '</div>' +
+        '<div class="fp-foot">Tir\u00e9e de la revue de la semaine du ' + esc(fmtDayFR(wp.start)) + '</div>';
+    } else {
+      var ci = chosenImprovement(); if (!ci) return;
+      pop.innerHTML = '<div class="fp-head">\ud83d\udd27 Am\u00e9lioration pour aujourd\u2019hui</div>' +
+        '<div class="fp-foot">Not\u00e9e le ' + esc(fmtDayFR(ci.day)) + (ci.items.length > 1 ? ' \u2014 choisissez celle \u00e0 afficher' : '') + '</div>' +
+        ci.items.map(function(it) {
+          return '<label class="fp-opt"><input type="radio" name="fp-pick" value="' + it.n + '"' + (it.n === ci.current.n ? ' checked' : '') + '>' +
+            '<span>' + esc(it.text) + '<small>trade #' + it.n + (it.instrument ? ' \u00b7 ' + esc(it.instrument) : '') + '</small></span></label>';
+        }).join('');
+    }
+    document.body.appendChild(pop);
+    var r = anchor.getBoundingClientRect();
+    pop.style.top = (r.bottom + window.scrollY + 6) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+    Array.prototype.forEach.call(pop.querySelectorAll('input[name=fp-pick]'), function(inp) {
+      inp.onchange = async function() {
+        var cur = chosenImprovement();
+        DB.focusPick = { day: cur.day, n: +inp.value };
+        closeFocusPop(); updateStatusBar();
+        await save('Am\u00e9lioration du jour choisie');
+      };
+    });
+  }
+  document.addEventListener('click', function(e) {
+    var fp = e.target.closest && e.target.closest('#focus-pill');
+    var pp = e.target.closest && e.target.closest('#prio-pill');
+    if (fp || pp) { e.stopPropagation(); var open = document.getElementById('focus-pop');
+      if (open && open.dataset.kind === (fp ? 'impr' : 'prio')) { closeFocusPop(); return; }
+      openFocusPop(fp || pp, fp ? 'impr' : 'prio');
+      var np = document.getElementById('focus-pop'); if (np) np.dataset.kind = fp ? 'impr' : 'prio';
+      return; }
+    if (!(e.target.closest && e.target.closest('#focus-pop'))) closeFocusPop();
+  });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeFocusPop(); });
+
   function updateStatusBar() {
     var bar = document.getElementById('gr-status-bar');
     if (!bar || !DB) return;
@@ -227,7 +321,7 @@
   }
   function statusPills() {
     var g = getGuardrails();
-    if (!g.enabled) return '';
+    if (!g.enabled) return focusPills();
     var st = todayStats();
     var kz = g.killzones || {};
     var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
@@ -255,7 +349,7 @@
 
     var newsAlert = document.getElementById('news-alert-pill');
     if (newsAlert) html += newsAlert.outerHTML;
-    return html;
+    return focusPills() + html;
   }
 
   /* ---------- NEWS ALERTS (10mn before High Impact) ---------- */
@@ -347,7 +441,7 @@
 
 
   /* ---------- GUARDRAILS ---------- */
-  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, dailyTargetR: 3, weeklyTargetR: 10, monthlyTargetR: 30, enabled: true, killzones: {
+  function defaultGuardrails() { return { maxTrades: 3, maxLossR: -3, maxRiskR: 1, dailyTargetR: 3, weeklyTargetR: 10, monthlyTargetR: 30, enabled: true, killzones: {
       enabled: true,
       sessions: [
         { name: 'Asian', from: '03:00', to: '07:00', active: false },
@@ -357,27 +451,30 @@
       ]
     }}; }
   function getGuardrails() { return Object.assign(defaultGuardrails(), (DB && DB.guardrails) || {}); }
+  // All calendar maths in UTC on 'YYYY-MM-DD' strings: no timezone can shift a day (Antananarivo is UTC+3)
+  // 'today' in the USER's local calendar (a trade at 01:00 in Antananarivo belongs to that day, not to UTC's yesterday)
+  function todayISO() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function addDaysISO(iso, n) { var x = new Date(iso + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); }
   function weekStartISO(d) {
-    var x = d ? new Date(d + 'T00:00:00') : new Date();
-    var day = x.getDay();
-    x.setDate(x.getDate() - day + (day === 0 ? -6 : 1));
+    var x = new Date((d || todayISO()) + 'T00:00:00Z');
+    var day = x.getUTCDay();
+    x.setUTCDate(x.getUTCDate() - day + (day === 0 ? -6 : 1));
     return x.toISOString().slice(0, 10);
   }
   function periodStats(kind, dateStr) {
     // kind: 'week' | 'month' ; returns { net, n, from, to, label }
-    var ref = dateStr || new Date().toISOString().slice(0, 10);
+    var ref = dateStr || todayISO();
     var from, to, label;
     if (kind === 'week') {
       from = weekStartISO(ref);
-      var e = new Date(from + 'T00:00:00'); e.setDate(e.getDate() + 6);
-      to = e.toISOString().slice(0, 10);
-      label = 'semaine du ' + new Date(from + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+      to = addDaysISO(from, 6);
+      label = 'semaine du ' + new Date(from + 'T00:00:00Z').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', timeZone: 'UTC' });
     } else {
       from = ref.slice(0, 8) + '01';
-      var d2 = new Date(ref.slice(0, 7) + '-01T00:00:00');
-      d2.setMonth(d2.getMonth() + 1); d2.setDate(0);
+      var d2 = new Date(ref.slice(0, 7) + '-01T00:00:00Z');
+      d2.setUTCMonth(d2.getUTCMonth() + 1); d2.setUTCDate(0);
       to = d2.toISOString().slice(0, 10);
-      label = new Date(from + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+      label = new Date(from + 'T00:00:00Z').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     }
     var ts = ((DB && DB.trades) || []).filter(function(t) {
       return t.date && t.date >= from && t.date <= to && S.filled(t.ret);
@@ -387,7 +484,7 @@
     return { net: net, n: ts.length, from: from, to: to, label: label };
   }
   function todayStats(dateStr) {
-    var d = dateStr || new Date().toISOString().slice(0, 10);
+    var d = dateStr || todayISO();
     var ts = ((DB && DB.trades) || []).filter(function(t) { return t.date === d && S.filled(t.ret); });
     var n = ts.length;
     var net = 0, losses = 0;
@@ -481,6 +578,7 @@
       '<label style="flex-direction:row;align-items:center;gap:6px;padding-bottom:7px"><input type="checkbox" id="gr-enabled" ' + (g.enabled ? 'checked' : '') + '> Activer les guardrails</label>' +
       '<label>Max trades / jour<input type="number" id="gr-maxTrades" min="1" value="' + g.maxTrades + '"></label>' +
       '<label>Max loss / jour (R)<input type="number" id="gr-maxLoss" step="0.5" value="' + g.maxLossR + '"></label>' +
+      '<label>Max risque / trade (R)<input type="number" id="gr-maxRisk" step="0.05" min="0.01" value="' + g.maxRiskR + '"></label>' +
       '<label>Daily target (R)<input type="number" id="gr-target" step="0.5" min="0" value="' + g.dailyTargetR + '"></label>' +
       '<label>Objectif hebdo (R)<input type="number" id="gr-weekly" step="0.5" min="0" value="' + g.weeklyTargetR + '"></label>' +
       '<label>Objectif mensuel (R)<input type="number" id="gr-monthly" step="0.5" min="0" value="' + g.monthlyTargetR + '"></label>' +
@@ -511,7 +609,7 @@
       document.querySelectorAll('.kz-active').forEach(function(cb, i) {
         kzSess.push({ name: kzSessions[i].name, from: document.querySelectorAll('.kz-from')[i].value || kzSessions[i].from, to: document.querySelectorAll('.kz-to')[i].value || kzSessions[i].to, active: cb.checked });
       });
-      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, dailyTargetR: +$('#gr-target').value || 3, weeklyTargetR: +$('#gr-weekly').value || 0, monthlyTargetR: +$('#gr-monthly').value || 0, killzones: { enabled: $('#kz-enabled').checked, sessions: kzSess } };
+      DB.guardrails = { enabled: $('#gr-enabled').checked, maxTrades: +$('#gr-maxTrades').value || 3, maxLossR: +$('#gr-maxLoss').value || -3, maxRiskR: +$('#gr-maxRisk').value || 1, dailyTargetR: +$('#gr-target').value || 3, weeklyTargetR: +$('#gr-weekly').value || 0, monthlyTargetR: +$('#gr-monthly').value || 0, killzones: { enabled: $('#kz-enabled').checked, sessions: kzSess } };
       if (await save('Guardrails enregistr\u00e9s')) renderGuardrails();
     };
   }
@@ -829,13 +927,14 @@
 
   /* ---------- formulaire (ajout / édition) ---------- */
   /* --- guardrail rules a trade can break (built from the current Guardrails settings) --- */
-  var GR_BREAK_NAMES = { maxTrades: 'Max trades / jour', maxLoss: 'Max loss / jour', killzone: 'Hors killzone' };
+  var GR_BREAK_NAMES = { maxTrades: 'Max trades / jour', maxLoss: 'Max loss / jour', maxRisk: 'Risque > max / trade', killzone: 'Hors killzone' };
   function grBreakItems() {
     var g = getGuardrails(), kz = g.killzones || {};
     var act = (kz.sessions || []).filter(function(s) { return s.active; }).map(function(s) { return s.name; });
     var items = [
       { key: 'maxTrades', label: 'Max trades / jour (' + g.maxTrades + ')' },
-      { key: 'maxLoss', label: 'Max loss / jour (' + sgn(g.maxLossR) + ' R)' }
+      { key: 'maxLoss', label: 'Max loss / jour (' + sgn(g.maxLossR) + ' R)' },
+      { key: 'maxRisk', label: 'Risque > max / trade (' + num(g.maxRiskR) + ' R)' }
     ];
     if (kz.enabled !== false && act.length) items.push({ key: 'killzone', label: 'Hors killzone (' + act.join(', ') + ')' });
     return items;
@@ -873,7 +972,7 @@
   const YN = (id, label, v) => `<label>${label}<select id="${id}">${opts(['Yes', 'No'], v, '—')}</select></label>`;
   function editTrade(n) {
     const isNew = n === null;
-    const t = isNew ? { n: Math.max(0, ...DB.trades.map(x => x.n)) + 1, date: new Date().toISOString().slice(0, 10), risk: 1, direction: 'Long', screens: {}, agg: {} } : DB.trades.find(x => x.n === n);
+    const t = isNew ? { n: Math.max(0, ...DB.trades.map(x => x.n)) + 1, date: todayISO(), risk: getGuardrails().maxRiskR || 1, direction: 'Long', screens: {}, agg: {} } : DB.trades.find(x => x.n === n);
     const a = t.agg || {};
     const dl = (id, arr) => `<datalist id="${id}">${arr.map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
     const mgmt = [...new Set(DB.trades.map(x => x.management).filter(Boolean))];
@@ -886,7 +985,7 @@
         <label>Instrument<input id="f-instrument" list="dl-inst" value="${esc(t.instrument)}"></label>
         <label>Direction<select id="f-direction">${opts(['Long', 'Short'], t.direction)}</select></label>
         <label>Session<input id="f-session" list="dl-sess" value="${esc(t.session)}"></label>
-        ${'<label>Durée (hh:mm)<input id="f-duration" type="text" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}" placeholder="00:00" value="' + esc(val(t.duration)) + '"></label>'}
+        ${!isNew && t.duration ? '<label>Durée (hh:mm)<input id="f-duration" type="text" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}" placeholder="00:00" value="' + esc(val(t.duration)) + '"></label>' : ''}
         <fieldset><legend>Entrée CONSERVATIVE</legend><div class="row">
           <label>Entrée<input id="f-entry" list="dl-entry" value="${esc(t.entry)}"></label>
           <label>SL<input id="f-sl" list="dl-sl" value="${esc(t.sl)}"></label>
@@ -915,7 +1014,7 @@
     $('#f-cancel').onclick = () => isNew ? closeModal() : openTrade(t.n);
     grBrokenWire();
     $('#f-save').onclick = async () => {
-      const v = id => $('#f-' + id).value.trim();
+      const v = id => { const el = $('#f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
       const numOrNull = id => { const x = v(id); return x === '' ? null : +x; };
       if (!v('date')) return alert('La date est obligatoire.');
       if (isNew && !guardrailConfirm(v('date'), v('session'))) return;
@@ -928,7 +1027,7 @@
         agg: { entry: v('aentry'), sl: v('asl'), tp: v('atp'), risk: numOrNull('arisk'), ret: numOrNull('aret') },
         screens: Object.fromEntries(SLOTS.map(([k]) => [k, urls(k)])),
         planId: v('planId'), planName: (planById(v('planId')) || {}).name || '',
-        overtrade: v('overtrade'), revenge: v('revenge'), guardrailsBroken: grBrokenValue(), improvement: v('improvement'),
+        overtrade: v('overtrade'), revenge: v('revenge'), guardrailsBroken: grBrokenValue(), improvement: v('improvement'), improvementAt: v('improvement') ? (v('improvement') !== String(t.improvement || '').trim() ? todayISO() : (t.improvementAt || todayISO())) : '',
         planFollow: v('planFollow'), management: v('management'), mistakes: v('mistakes'), notes: v('notes'), fomo: v('fomo'),
         bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'), rr: v('rr'),
       };
@@ -956,7 +1055,7 @@
   }
   function renderReviews() {
     const r = ui.rev;
-    if (!r.start) { const last = DB.trades.map(t => t.date).sort().pop() || new Date().toISOString().slice(0, 10); r.start = S.period(r.type, last).start; }
+    if (!r.start) { const last = DB.trades.map(t => t.date).sort().pop() || todayISO(); r.start = S.period(r.type, last).start; }
     const p = S.period(r.type, r.start), all = enriched(), ts = S.inPeriod(all, p), sm = S.summary(ts);
     const id = `${r.type}:${p.start}`, rv = DB.reviews.find(x => x.id === id) || { answers: {} };
     const kpi = (l, v, c) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c || ''}">${v}</div></div>`;
@@ -982,7 +1081,7 @@
     $('#r-save').onclick = async () => {
       const answers = {};
       QUESTIONS[r.type].forEach(([k, , kind]) => { const v = $('#q-' + k).value; if (v !== '') answers[k] = kind === 'number' ? +v : v; });
-      const i = DB.reviews.findIndex(x => x.id === id), rec = { id, type: r.type, start: p.start, end: p.end, answers };
+      const i = DB.reviews.findIndex(x => x.id === id), rec = { id, type: r.type, start: p.start, end: p.end, answers, savedAt: todayISO() };
       if (i >= 0) DB.reviews[i] = rec; else DB.reviews.push(rec);
       await save('Revue enregistrée');
     };
@@ -2137,8 +2236,8 @@
       <h2>Listes proposées dans le formulaire</h2>
       <div class="card"><div class="form">${LISTS.map(([k, l]) => `<label>${l} (une valeur par ligne)<textarea id="l-${k}" style="min-height:110px">${esc(list(k).join('\n'))}</textarea></label>`).join('')}</div><div class="actions"><button class="btn primary" id="l-save">Enregistrer les listes</button></div>
       <p class="muted small">Les valeurs déjà utilisées dans vos trades sont toujours proposées en plus de ces listes.</p></div>`;
-    $('#x-json').onclick = () => download(`backtest-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(DB, null, 1), 'application/json');
-    $('#x-csv').onclick = () => download(`backtest-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(), 'text/csv');
+    $('#x-json').onclick = () => download(`backtest-${todayISO()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+    $('#x-csv').onclick = () => download(`backtest-${todayISO()}.csv`, toCSV(), 'text/csv');
     $('#x-imp').onchange = async e => {
       const file = e.target.files[0]; if (!file) return;
       try {
