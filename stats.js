@@ -51,9 +51,9 @@
   }
 
   const result = t => !filled(t.ret) ? '' : t.ret > 0 ? 'Win' : t.ret < 0 ? 'Loss' : 'Breakeven';
-  const criteria = t => [t.bias, t.poi, t.killzone, t.sweep, t.rr];
+  const criteria = t => [t.bias, t.poi, t.killzone, t.sweep];   // « RR asymétrique » retiré (V3)
   const setupScore = t => criteria(t).every(filled) ? criteria(t).reduce((a, v) => a + YN(v), 0) : null;
-  const grade = t => { const s = setupScore(t); return s === null ? '' : s === 5 ? 'A+' : s === 4 ? 'A' : s === 3 ? 'B' : 'C'; };
+  const grade = t => { const s = setupScore(t); return s === null ? '' : s === 4 ? 'A+' : s === 3 ? 'A' : s === 2 ? 'B' : 'C'; };
   const discipline = t => [t.planFollow, t.riskRespected, t.invalidation].every(filled)
     ? YN(t.planFollow) + YN(t.riskRespected) + YN(t.invalidation) : null;
 

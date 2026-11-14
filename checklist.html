@@ -31,6 +31,7 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 .btn.red{background:var(--red);color:#fff;border-color:var(--red)}
 .progress{height:4px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden}
 .progress-fill{height:100%;background:var(--green);transition:width .3s}
+.frozen{background:rgba(59,130,246,.12);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:8px}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 .item-wrap{border-bottom:1px solid var(--line)}
 .item-wrap:last-child{border-bottom:none}
@@ -46,8 +47,10 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 <h1>✅ <span id="cl-name">Trading Checklist</span></h1>
 <div class="bar">
   <button class="btn green" id="reset">Reset all</button>
+  <button class="btn" id="freeze">📌 Figer (entrée)</button>
   <button class="btn" id="back" onclick="window.close()">Close</button>
 </div>
+<div class="frozen" id="frozen" hidden></div>
 <div class="progress"><div class="progress-fill" id="pbar"></div></div>
 <div id="app"><div class="empty">Loading trading plan...</div></div>
 
@@ -169,6 +172,36 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
     }
   };
 
+
+  // Freeze: a timestamped copy of ticks + notes, attached to the next trade saved in the journal
+  var SNAP_KEY = 'checklist_frozen_v1:' + APP;
+  function pad(n) { return ('0' + n).slice(-2); }
+  function showFrozen() {
+    var el = document.getElementById('frozen'), s = null;
+    try { s = JSON.parse(localStorage.getItem(SNAP_KEY)); } catch (e) {}
+    var d = new Date(), today = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    if (s && s.date === today) {
+      el.hidden = false;
+      el.textContent = s.used ? '\u2705 Checklist fig\u00e9e \u00e0 ' + s.time + ' jointe au trade #' + s.used + '.' : '\ud83d\udccc Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') : elle sera jointe au prochain trade enregistr\u00e9 aujourd\u2019hui.';
+    } else el.hidden = true;
+  }
+  document.getElementById('freeze').onclick = function() {
+    if (!plan) return;
+    var st = loadState(), items = [], done = 0;
+    plan.sections.forEach(function(sec, si) {
+      sec.items.forEach(function(item, ii) {
+        var k = si + '-' + ii, ok = !!st.checks[k];
+        if (ok) done++;
+        items.push({ section: sec.title, text: item, done: ok, note: st.notes[k] || '' });
+      });
+    });
+    var d = new Date();
+    var snap = { at: d.toISOString(), date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()), time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+      planId: plan.id || '', planName: plan.name || '', done: done, total: items.length, items: items };
+    try { localStorage.setItem(SNAP_KEY, JSON.stringify(snap)); } catch (e) {}
+    showFrozen();
+  };
+  showFrozen();
   loadPlanAsync(function(p) { plan = p; render(); });
 })();
 </script>

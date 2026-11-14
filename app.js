@@ -160,7 +160,7 @@
   window.addEventListener('online', function() { retrySync(); });
 
   /* ---------- helpers ---------- */
-  const list = k => DB.lists[k] || [];
+  const list = k => (DB.lists[k] && DB.lists[k].length) ? DB.lists[k] : (DEF_LISTS[k] || []);
   const FIELD = { instruments: t => [t.instrument], sessions: t => [t.session], entries: t => [t.entry], aggEntries: t => [t.agg && t.agg.entry], sl: t => [t.sl, t.agg && t.agg.sl], tp: t => [t.tp, t.agg && t.agg.tp] };
   const uniq = k => [...new Set([...(DB.lists[k] || []), ...DB.trades.flatMap(FIELD[k] || (() => [])).filter(Boolean)])];
   const opts = (arr, sel, blank) => (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + arr.map(v => `<option ${v === sel ? 'selected' : ''} value="${esc(v)}">${esc(v)}</option>`).join('');
@@ -324,7 +324,7 @@
   }
   function statusPills() {
     var g = getGuardrails();
-    if (!g.enabled) return focusPills();
+    if (!g.enabled) return focusPills() + e20Pill();
     var st = todayStats();
     var kz = g.killzones || {};
     var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
@@ -352,7 +352,7 @@
 
     var newsAlert = document.getElementById('news-alert-pill');
     if (newsAlert) html += newsAlert.outerHTML;
-    return focusPills() + html;
+    return focusPills() + e20Pill() + html;
   }
 
   /* ---------- NEWS ALERTS (10mn before High Impact) ---------- */
@@ -516,9 +516,11 @@
     html += '<div class="gr-summary">' + r.st.n + ' trade(s) \u00b7 Net ' + sgn(r.st.net) + ' R \u00b7 Pertes ' + sgn(r.st.losses) + ' R</div></div>';
     return html;
   }
-  function checkKillzone(session) {
+  function checkKillzone(session, time) {
     var g = getGuardrails();
     if (!g.enabled || !g.killzones || !g.killzones.enabled) return null;
+    var byTime = killzoneAt(time);
+    if (byTime) return byTime.inKz ? null : '\u23f0 Heure d\u2019entr\u00e9e ' + time + ' en dehors des killzones actives (' + (g.killzones.sessions || []).filter(function(s) { return s.active; }).map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + ')';
     var allKz = g.killzones.sessions || [];
     var activeSessions = allKz.filter(function(s) { return s.active; });
     if (!activeSessions.length) return null;
@@ -535,10 +537,10 @@
     // Returns true if session is in an active killzone, false otherwise
     return checkKillzone(session) === null;
   }
-  function guardrailConfirm(dateStr, session) {
+  function guardrailConfirm(dateStr, session, time) {
     var r = guardrailAlerts(dateStr, true);
     var danger = r.alerts.filter(function(a) { return a.level === 'danger'; });
-    var kzWarn = checkKillzone(session);
+    var kzWarn = checkKillzone(session, time);
     if (!danger.length && !kzWarn) return true;
     var msg = '\u26a0\ufe0f GUARDRAIL \u26a0\ufe0f\n\n';
     danger.forEach(function(a) { msg += '\ud83d\udeab ' + a.msg + '\n'; });
@@ -568,7 +570,7 @@
       // Check killzone violations for this day
       if (kz.enabled !== false) {
         var dayTrades = DB.trades.filter(function(t) { return t.date === d && S.filled(t.ret); });
-        var oosCount = dayTrades.filter(function(t) { return !isSessionInKillzone(t.session); }).length;
+        var oosCount = dayTrades.filter(function(t) { return !tradeInKz(t); }).length;
         if (oosCount > 0) flags.push('\u23f0 ' + oosCount + ' hors killzone');
       }
       days.push('<tr><td>' + esc(d) + ' (' + S.dayName(d) + ')</td><td class="num">' + ds.n + '</td><td class="num">' + wins + '</td><td class="num">' + losses + '</td><td class="num ' + cls(ds.net) + '">' + sgn(ds.net) + '</td><td class="num ' + cls(ds.losses) + '">' + sgn(ds.losses) + '</td><td>' + (flags.join(' ') || '\u2705') + '</td></tr>');
@@ -662,7 +664,9 @@
     var kzTotal = 0, kzOk = 0;
     if (kzEnabled) {
       trades.forEach(function(t) {
-        if (t.session) {
+        var kt = killzoneAt(t.entryTime);
+        if (kt) { kzTotal++; if (kt.inKz) kzOk++; }
+        else if (t.session) {
           kzTotal++;
           if (kzNames.indexOf(t.session.toLowerCase()) >= 0) kzOk++;
         }
@@ -812,8 +816,9 @@
         ${groupTable('Jour', g(t => S.dayName(t.date)))}${groupTable('Direction', g(t => t.direction))}
         ${groupTable('Modèle d\'entrée', g(t => t.entry))}${groupTable('Stop loss', g(t => t.sl))}
         ${groupTable('Take profit', g(t => t.tp))}${groupTable('Grade du setup', g(t => t._grade))}
-        ${groupTable('Score du setup (/5)', g(t => t._score === null ? '' : t._score + '/5'))}${groupTable('Plan-follow', g(t => t.planFollow))}
-        ${groupTable('FOMO / impulsion', g(t => t.fomo))}${groupTable('Gestion du trade', g(t => t.management))}
+        ${groupTable('Score du setup (/4)', g(t => t._score === null ? '' : t._score + '/4'))}${groupTable('Plan-follow', g(t => t.planFollow))}
+        ${groupTable('FOMO / impulsion', g(t => t.fomo))}${groupTable('Gestion du trade', g(t => normMgmt(t.management)))}
+        ${groupTable('Setup', g(t => t.setup))}${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Type de sortie', g(t => t.exitType))}
       </div>`;
     const re = () => { f.from = $('#d-from').value; f.to = $('#d-to').value; f.instrument = $('#d-inst').value; f.session = $('#d-sess').value; f.window = $('#d-win').value; f.excl = $('#d-excl').checked; renderDashboard(); };
     ['#d-from', '#d-to', '#d-inst', '#d-sess', '#d-win', '#d-excl'].forEach(s => $(s).addEventListener('change', re));
@@ -918,7 +923,8 @@
         <div class="card"><h3>Entrée aggressive (simulation)</h3>${hasA ? `<div class="details">${D('Entrée', a.entry)}${D('SL', a.sl)}${D('TP', a.tp)}${D('Risque', S.filled(a.risk) ? a.risk + ' R' : '')}${D('Return', S.filled(a.ret) ? sgn(a.ret) + ' R' : '')}${D('Δ (agg − cons)', d === null ? '' : sgn(d) + ' R')}</div>` : '<p class="muted">Pas encore simulée pour ce trade. Utilisez « Modifier » pour la renseigner.</p>'}</div>
       </div>
       <div class="details">${D('Session', t.session)}${D('Durée', t.duration)}${D('Plan suivi', t.planName || (planById(t.planId) || {}).name || '')}${D('Overtrade', t.overtrade)}${D('Revenge trade', t.revenge)}${D('Guardrails broken', grBrokenNames(t.guardrailsBroken))}${D('Plan-follow', t.planFollow)}${D('FOMO / impulsion', t.fomo)}${D('Gestion', t.management)}
-        ${D('Bias alignment', t.bias)}${D('POI haute proba', t.poi)}${D('Killzone', t.killzone)}${D('Sweep + Market Shift', t.sweep)}${D('RR asymétrique', t.rr)}${D('Score setup', t._score === null ? '' : t._score + '/5')}</div>
+        ${D('Bias alignment', t.bias)}${D('POI haute proba', t.poi)}${D('Killzone', t.killzone)}${D('Sweep + Market Shift', t.sweep)}${D('Score setup', t._score === null ? '' : t._score + '/4')}</div>
+      ${v3Details(t)}
       ${block('Erreurs', t.mistakes)}${block('Notes', t.notes)}${block('Amélioration pour demain', t.improvement)}`);
     bindShots($('#modal'), t);
     $('#m-close').onclick = closeModal; $('#m-edit').onclick = () => editTrade(t.n);
@@ -999,28 +1005,31 @@
           <label>SL<input id="f-asl" list="dl-sl" value="${esc(a.sl)}"></label>
           <label>TP<input id="f-atp" list="dl-tp" value="${esc(a.tp)}"></label>
           ${inp('f-arisk', 'Risque (R)', a.risk, 'number', 'step="0.01"')}${inp('f-aret', 'Return (R)', a.ret, 'number', 'step="0.01"')}</div></fieldset>
+        ${v3ExecFieldset(t, isNew)}
         <fieldset><legend>Process</legend><div class="row">
           ${(() => { const pd = plansData(); const cur = t.planId || pd.activeId;
             return `<label>Plan suivi<select id="f-planId">${pd.plans.map(p => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>`; })()}
           ${YN('f-planFollow', 'Plan-follow', t.planFollow)}${YN('f-fomo', 'FOMO / impulsion', t.fomo)}${YN('f-overtrade', 'Overtrade', t.overtrade)}${YN('f-revenge', 'Revenge trade', t.revenge)}${grBrokenField(t)}
-          <label>Gestion du trade<input id="f-management" list="dl-mgmt" value="${esc(t.management)}"></label></div></fieldset>
+          <label>Gestion du trade<select id="f-management">${closedOpts(lst('management'), t.management || '')}</select></label></div></fieldset>
         <fieldset><legend>Critères du setup (grade automatique)</legend><div class="row">
-          ${YN('f-bias', 'Bias alignment', t.bias)}${YN('f-poi', 'POI haute probabilité', t.poi)}${YN('f-killzone', 'Killzone respectée', t.killzone)}${YN('f-sweep', 'Liquidity sweep + Market Shift', t.sweep)}${YN('f-rr', 'RR asymétrique', t.rr)}</div></fieldset>
+          ${YN('f-bias', 'Bias alignment', t.bias)}${YN('f-poi', 'POI haute probabilité', t.poi)}${!isNew && !t.entryTime && !t.killzoneAuto ? YN('f-killzone', 'Killzone (ancien trade sans heure)', t.killzone) : ''}${YN('f-sweep', 'Liquidity sweep + Market Shift', t.sweep)}</div><p class="muted small">Grade sur 4 critères (Bias, POI, Killzone, Sweep). La killzone est calculée automatiquement depuis l'heure d'entrée.</p></fieldset>
         <fieldset><legend>Captures d'écran (un lien par ligne : lien TradingView /x/…, ou URL d'image)</legend><div class="row" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
           ${SLOTS.map(([k, l]) => `<label>${l}<textarea id="f-s-${k}" placeholder="https://www.tradingview.com/x/…">${esc(((t.screens || {})[k] || []).join('\n'))}</textarea></label>`).join('')}</div></fieldset>
-        <label class="wide">Erreurs<textarea id="f-mistakes">${esc(t.mistakes)}</textarea></label>
+        <div class="wide">${v3MistakesField(t)}</div>
+        <label class="wide">Détail des erreurs<textarea id="f-mistakes">${esc(t.mistakes)}</textarea></label>
         <label class="wide">Notes<textarea id="f-notes">${esc(t.notes)}</textarea></label>
         <label class="wide">Amélioration pour demain<textarea id="f-improvement" placeholder="Une chose précise à faire mieux demain…">${esc(t.improvement)}</textarea></label>
       </div>
       ${dl('dl-inst', uniq('instruments'))}${dl('dl-sess', uniq('sessions'))}${dl('dl-entry', uniq('entries'))}${dl('dl-aentry', uniq('aggEntries'))}${dl('dl-sl', uniq('sl'))}${dl('dl-tp', uniq('tp'))}${dl('dl-mgmt', mgmt)}
       <div class="actions"><button class="btn" id="f-cancel">Annuler</button><button class="btn primary" id="f-save">Enregistrer</button></div>`);
     $('#f-cancel').onclick = () => isNew ? closeModal() : openTrade(t.n);
-    grBrokenWire();
+    grBrokenWire(); v3Wire(t, isNew);
     $('#f-save').onclick = async () => {
       const v = id => { const el = $('#f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
       const numOrNull = id => { const x = v(id); return x === '' ? null : +x; };
       if (!v('date')) return alert('La date est obligatoire.');
-      if (isNew && !guardrailConfirm(v('date'), v('session'))) return;
+      const v3err = v3Validate(); if (v3err) return alert(v3err);
+      if (isNew && !guardrailConfirm(v('date'), v('session'), ($('#f-entryTime') || {}).value)) return;
       if (!v('instrument')) return alert('L\'instrument est obligatoire.');
       for (const id of ['ret', 'aret', 'risk', 'arisk']) { const x = v(id); if (x !== '' && !Number.isFinite(+x)) return alert('Valeur numérique invalide (' + id + ').'); }
       const urls = k => v('s-' + k).split(/[\s,;]+/).filter(u => /^(https?:\/\/|data:image\/)/.test(u));
@@ -1032,8 +1041,9 @@
         planId: v('planId'), planName: (planById(v('planId')) || {}).name || '',
         overtrade: v('overtrade'), revenge: v('revenge'), guardrailsBroken: grBrokenValue(), improvement: v('improvement'), improvementAt: v('improvement') ? (v('improvement') !== String(t.improvement || '').trim() ? todayISO() : (t.improvementAt || todayISO())) : '',
         planFollow: v('planFollow'), management: v('management'), mistakes: v('mistakes'), notes: v('notes'), fomo: v('fomo'),
-        bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'), rr: v('rr'),
+        bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'),
       };
+      Object.assign(nt, v3Collect(t, isNew, nt));
       const i = DB.trades.findIndex(x => x.n === t.n);
       if (i >= 0) DB.trades[i] = nt; else DB.trades.push(nt);
       if (await save(isNew ? 'Trade ajouté' : 'Trade modifié')) { openTrade(nt.n); render(); }
@@ -2154,10 +2164,387 @@
 
 
 
+  /* ================= V3 : données fiables, gel pré-entrée, analyse, backtest vs live ================= */
+  const IS_BT = FILE_NAME === 'journal-backtest.json';
+  const APP_ID = IS_BT ? 'journal-backtest' : 'journal-trading';
+  const OTHER_FILE = IS_BT ? 'journal-trading.json' : 'journal-backtest.json';
+  const DEF_LISTS = {
+    setups: ['London Sweep Asia', 'NY Sweep Asia', 'London Continuation', 'NY Continuation'],
+    management: ['Set and Forget', 'Set and Watch', 'TP repositionné', 'SL déplacé au BE', 'Trailing stop', 'Sortie partielle', 'Time stop'],
+    execPoi: ['SND', 'FVG', 'OB'],
+    exitTypes: ['TP atteint', 'SL touché', 'Breakeven', 'Sortie manuelle', 'Sortie partielle', 'Time stop'],
+    mistakeTags: ['FOMO / entrée impulsive', 'Mauvaise lecture de structure (sweep ≠ BOS/MS)', 'Contre le biais / la direction HTF', 'Pas attendu le sweep de liquidité', 'POI / setup de faible qualité', 'Entrée trop tôt (sans confirmation)', 'SL trop serré / sans buffer', 'TP mal placé / déplacé / sortie anticipée', 'News ignorée', 'Routine pré-market non faite', 'Overtrade / revenge / garde-fous', 'Scaling / ajout de position'],
+    emotions: ['Calme', 'Confiant', 'Patient', 'Concentré', 'Anxieux', 'Impatient', 'Euphorique', 'Frustré', 'Peur', 'Doute'],
+  };
+  const lst = k => (DB && DB.lists && DB.lists[k] && DB.lists[k].length) ? DB.lists[k] : (DEF_LISTS[k] || []);
+  const vOr = v => v === null || v === undefined ? '' : v;
+  const isSet = v => v !== null && v !== undefined && v !== '';
+  /* liste fermée : une ancienne valeur hors liste reste affichée (marquée) pour ne rien perdre */
+  function closedOpts(arr, v, blank) {
+    let h = `<option value="">${esc(blank || '—')}</option>` + arr.map(x => `<option value="${esc(x)}"${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+    if (isSet(v) && arr.indexOf(v) < 0) h += `<option value="${esc(v)}" selected>${esc(v)} (ancienne valeur)</option>`;
+    return h;
+  }
+  const takenT = t => !IS_BT || !S.taken || S.taken(t);
+
+  /* ---- heures, durée, killzone automatique ---- */
+  const toMin = s => { const m = /^(\d{1,2}):?(\d{2})$/.exec(String(s || '').trim()); return m && +m[1] < 24 && +m[2] < 60 ? (+m[1]) * 60 + (+m[2]) : null; };
+  const fmtHM = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  function durationOf(a, b) { const x = toMin(a), y = toMin(b); if (x === null || y === null) return ''; let d = y - x; if (d < 0) d += 1440; return fmtHM(d); }
+  function killzoneAt(time) {
+    const m = toMin(time); if (m === null) return null;
+    const kz = getGuardrails().killzones || {}; if (kz.enabled === false) return null;
+    const act = (kz.sessions || []).filter(s => s.active); if (!act.length) return null;
+    for (const s of act) {
+      const a = toMin(s.from), b = toMin(s.to); if (a === null || b === null) continue;
+      if (a <= b ? (m >= a && m < b) : (m >= a || m < b)) return { inKz: true, name: s.name };
+    }
+    return { inKz: false, name: '' };
+  }
+  function sessionKz(session) {
+    const kz = getGuardrails().killzones || {}; if (kz.enabled === false) return null;
+    const act = (kz.sessions || []).filter(s => s.active); if (!act.length || !session) return null;
+    return act.some(s => s.name.toLowerCase() === String(session).toLowerCase().trim());
+  }
+  /* un trade est-il dans une killzone ? heure d'entrée d'abord, sinon nom de session */
+  function tradeInKz(t) { const k = killzoneAt(t.entryTime); if (k) return k.inKz; const s = sessionKz(t.session); return s === null ? true : s; }
+
+  /* ---- normalisation (nettoyage + comparaisons) ---- */
+  function normMgmt(v) {
+    const s = String(v || '').trim(), l = s.toLowerCase(); if (!s) return '';
+    if (/set\s*(and|ad|&)?\s*forg/.test(l)) return 'Set and Forget';
+    if (/set\s*(and|ad|&)?\s*watch/.test(l)) return 'Set and Watch';
+    if (/tp\s*reposit/.test(l)) return 'TP repositionné';
+    if (/trail/.test(l)) return 'Trailing stop';
+    if (/time\s*stop/.test(l)) return 'Time stop';
+    if (/partiel|partial/.test(l)) return 'Sortie partielle';
+    if (/\bbe\b|break.?even/.test(l)) return 'SL déplacé au BE';
+    return s;
+  }
+  function mapSetup(setup, session) {
+    const l = String(setup || '').toLowerCase().trim(), s = String(session || '').toLowerCase().trim();
+    if (!l || DEF_LISTS.setups.some(x => x.toLowerCase() === l)) return null;
+    const ses = s === 'london' ? 'London' : s === 'ny' ? 'NY' : null;
+    if (!ses) return null;
+    if (/^rev/.test(l)) return ses + ' Sweep Asia';
+    if (/^cont/.test(l)) return ses + ' Continuation';
+    return null;
+  }
+  const TYPOS = { instrument: { GDPUSD: 'GBPUSD' }, entry: { Agressive: 'Aggressive' }, tp: { Structue: 'Structure', Sz: 'SZ' }, setup: { Reveesal: 'Reversal' } };
+  const TAG_RULES = [
+    [/fomo|rush|précipit|impuls/i, 0], [/structure|sweep not|sweep lot|not a (clear )?[^,]{0,4}ms|false 5|not bos|inducement|wrong analysis/i, 1],
+    [/direction|htf/i, 2], [/wait for liquidity|liquidity remaining|liquidity sweep,/i, 3], [/poi|mauvaise qualit|avoid the kind|double top/i, 4],
+    [/too early|confirmation|timing/i, 5], [/sl too tight|buffer/i, 6], [/tp|exit/i, 7], [/news/i, 8], [/routine|pre-market/i, 9],
+    [/overtrade|revenge|guardrail/i, 10], [/scaling/i, 11],
+  ];
+  function suggestTags(text) { const out = []; TAG_RULES.forEach(([re, i]) => { if (re.test(text || '') && out.indexOf(DEF_LISTS.mistakeTags[i]) < 0) out.push(DEF_LISTS.mistakeTags[i]); }); return out; }
+
+  /* ---- multi-sélection générique (même rendu que « Guardrails broken ») ---- */
+  function msField(id, title, items, sel, empty) {
+    sel = sel || []; items = items.slice(); sel.forEach(k => { if (items.indexOf(k) < 0) items.push(k); });
+    return `<div class="ms-field"><span class="ms-title">${esc(title)}</span><details class="ms" id="${id}"><summary>${esc(sel.length ? sel.join(', ') : empty)}</summary><div class="ms-list">` +
+      items.map(i => `<label class="ms-opt"><input type="checkbox" value="${esc(i)}"${sel.indexOf(i) >= 0 ? ' checked' : ''}> ${esc(i)}</label>`).join('') + '</div></details></div>';
+  }
+  function msWire(id, empty) {
+    const box = document.getElementById(id); if (!box) return;
+    const sum = box.querySelector('summary');
+    box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => { const k = msValue(id); sum.textContent = k.length ? k.join(', ') : empty; });
+  }
+  function msValue(id) { const box = document.getElementById(id); return box ? Array.prototype.map.call(box.querySelectorAll('input:checked'), x => x.value) : null; }
+
+  /* ---- checklist figée (écrite par checklist.html, même navigateur) ---- */
+  const SNAP_KEY = 'checklist_frozen_v1:' + APP_ID;
+  function pendingSnap() { try { const s = JSON.parse(localStorage.getItem(SNAP_KEY)); if (s && !s.used && s.date === todayISO()) return s; } catch (e) {} return null; }
+  function markSnapUsed(n) { try { const s = JSON.parse(localStorage.getItem(SNAP_KEY)); if (s) { s.used = n; localStorage.setItem(SNAP_KEY, JSON.stringify(s)); } } catch (e) {} }
+  const PRE_FIELDS = [['setup', 'Setup'], ['execPoi', 'POI d\'exécution'], ['bias', 'Bias alignment'], ['poi', 'POI haute probabilité'], ['sweep', 'Liquidity sweep + Market Shift'], ['fomo', 'FOMO / impulsion']];
+  const fmtStamp = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+
+  /* ---- champs ajoutés au formulaire ---- */
+  function emoField(key, label, t) {
+    const old = key === 'Entry' ? t.entryEmotion : key === 'Exit' ? t.exitEmotion : '';
+    return `<div class="emo-field"><span class="ms-title">${label}${old ? ` <span class="muted">(ancien : ${esc(old)})</span>` : ''}</span>
+      <div class="emo-row"><select id="f-emo${key}">${closedOpts(lst('emotions'), t['emo' + key] || '', '— état —')}</select>
+      <select id="f-emo${key}Lvl" title="Intensité 1 (faible) à 5 (très forte)">${closedOpts(['1', '2', '3', '4', '5'], isSet(t['emo' + key + 'Lvl']) ? String(t['emo' + key + 'Lvl']) : '', 'Intensité')}</select></div>
+      <input id="f-emo${key}Note" placeholder="Préciser (facultatif)…" value="${esc(t['emo' + key + 'Note'] || '')}"></div>`;
+  }
+  function v3ExecFieldset(t, isNew) {
+    const snap = isNew ? pendingSnap() : null;
+    const lockInfo = !isNew && t.preLockedAt ? `<div class="lockbar" id="f-lockbar">🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}${t.preEdits && t.preEdits.length ? ` · modifiés après coup ${t.preEdits.length} fois` : ''} <button type="button" class="btn" id="f-unlock">Déverrouiller</button></div>` : '';
+    return `${snap ? `<label class="snap-box"><input type="checkbox" id="f-attachSnap" checked> 📌 Joindre la checklist figée à <b>${esc(snap.time)}</b> (${snap.done}/${snap.total} points cochés · ${esc(snap.planName || 'plan')})</label>` : ''}
+      ${lockInfo}
+      <fieldset><legend>Exécution</legend><div class="row">
+        <label>Setup<select id="f-setup">${closedOpts(lst('setups'), t.setup || '')}</select></label>
+        <label>POI d'exécution<select id="f-execPoi">${closedOpts(lst('execPoi'), t.execPoi || '')}</select></label>
+        <label>Heure d'entrée<input id="f-entryTime" type="time" value="${esc(t.entryTime || (snap ? snap.time : ''))}"></label>
+        <label>Heure de sortie<input id="f-exitTime" type="time" value="${esc(t.exitTime || '')}"></label>
+        <div class="kz-ind" id="f-kzind"></div>
+        <label>R prévu (TP initial)<input id="f-plannedR" type="number" step="0.01" value="${esc(vOr(t.plannedR))}" placeholder="ex. 3"></label>
+        <label>Type de sortie<select id="f-exitType">${closedOpts(lst('exitTypes'), t.exitType || '')}</select></label>
+        <label>MAE (R contre toi)<input id="f-mae" type="number" step="0.01" min="0" value="${esc(vOr(t.mae))}" placeholder="ex. 0.6"></label>
+        <label>MFE (R en ta faveur)<input id="f-mfe" type="number" step="0.01" min="0" value="${esc(vOr(t.mfe))}" placeholder="ex. 2.4"></label>
+      </div><p class="muted small">Killzone contrôlée automatiquement avec l'heure d'entrée (fenêtres de l'onglet Guardrails, même fuseau). MAE = recul maximal contre la position avant la sortie ; MFE = avance maximale en ta faveur.</p></fieldset>`;
+  }
+  function v3MistakesField(t) { return msField('f-mtags', 'Erreurs (tags)', lst('mistakeTags'), t.mistakeTags || [], 'Aucune'); }
+  function v3EmotionsFieldset(t) {
+    if (IS_BT) return '';
+    return `<fieldset><legend>Émotions (état + intensité 1–5)</legend><div class="row emo-grid">${emoField('Entry', 'À l\'entrée', t)}${emoField('During', 'Pendant le trade', t)}${emoField('Exit', 'À la sortie', t)}</div></fieldset>`;
+  }
+  function v3Wire(t, isNew) {
+    msWire('f-mtags', 'Aucune');
+    $('#modal').addEventListener('click', e => { document.querySelectorAll('#modal details.ms[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
+    const upd = () => {
+      const el = $('#f-kzind'); if (!el) return;
+      const k = killzoneAt($('#f-entryTime').value), d = durationOf($('#f-entryTime').value, $('#f-exitTime').value);
+      el.innerHTML = (k ? (k.inKz ? `<span class="badge Win">✓ Killzone ${esc(k.name)}</span>` : '<span class="badge Loss">✗ Hors killzone</span>') : '<span class="muted small">Killzone : saisis l\'heure d\'entrée</span>') + (d ? ` <span class="muted small">Durée ${d}</span>` : '');
+    };
+    ['#f-entryTime', '#f-exitTime'].forEach(s => $(s) && $(s).addEventListener('input', upd)); upd();
+    if (!isNew && t.preLockedAt) {
+      PRE_FIELDS.forEach(([k]) => { const el = $('#f-' + k); if (el) el.disabled = true; });
+      $('#f-unlock').onclick = () => {
+        if (!confirm('Modifier les critères pré-entrée après coup ?\nLa modification sera enregistrée (date + valeurs d\'origine conservées) et le trade sera signalé dans l\'onglet Analyse.')) return;
+        PRE_FIELDS.forEach(([k]) => { const el = $('#f-' + k); if (el) el.disabled = false; });
+        $('#f-lockbar').classList.add('open'); $('#f-unlock').remove();
+      };
+    }
+  }
+  function v3Validate() {
+    for (const id of ['plannedR', 'mae', 'mfe']) { const el = $('#f-' + id); if (el && el.value.trim() !== '' && !Number.isFinite(+el.value)) return 'Valeur numérique invalide (' + id + ').'; }
+    for (const id of ['entryTime', 'exitTime']) { const el = $('#f-' + id); if (el && el.value.trim() !== '' && toMin(el.value) === null) return 'Heure invalide (hh:mm).'; }
+    return '';
+  }
+  /* valeurs V3 à fusionner dans le trade enregistré ; `base` = trade déjà reconstruit par le formulaire */
+  function v3Collect(t, isNew, base) {
+    const g = id => { const el = document.getElementById('f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
+    const nf = id => { const x = g(id); return x === '' ? null : +x; };
+    const o = { entryTime: g('entryTime'), exitTime: g('exitTime'), setup: g('setup'), execPoi: g('execPoi'), exitType: g('exitType'), plannedR: nf('plannedR'), mae: nf('mae'), mfe: nf('mfe') };
+    const tags = msValue('f-mtags'); o.mistakeTags = tags === null ? (t.mistakeTags || []) : tags;
+    if (!IS_BT) ['Entry', 'During', 'Exit'].forEach(k => { o['emo' + k] = g('emo' + k); o['emo' + k + 'Lvl'] = g('emo' + k + 'Lvl') === '' ? null : +g('emo' + k + 'Lvl'); o['emo' + k + 'Note'] = g('emo' + k + 'Note'); });
+    const d = durationOf(o.entryTime, o.exitTime); if (d) o.duration = d;
+    const kz = killzoneAt(o.entryTime);
+    if (kz) { o.killzone = kz.inKz ? 'Yes' : 'No'; o.killzoneAuto = 'time'; o.killzoneName = kz.name; }
+    else if (isNew || t.killzoneAuto) { const s = sessionKz(base.session); if (s !== null) { o.killzone = s ? 'Yes' : 'No'; o.killzoneAuto = 'session'; o.killzoneName = s ? base.session : ''; } }
+    ['preLockedAt', 'preOriginal', 'preEdits', 'checklistSnap', 'entryEmotion', 'exitEmotion', 'style', 'corr1', 'corr2'].forEach(k => { if (t[k] !== undefined && base[k] === undefined) o[k] = t[k]; });
+    const now = new Date().toISOString();
+    if (isNew) o.preLockedAt = now;
+    else if (t.preLockedAt) {
+      const cur = Object.assign({}, base, o), changed = PRE_FIELDS.map(p => p[0]).filter(k => String(t[k] || '') !== String(cur[k] || ''));
+      if (changed.length) { o.preOriginal = t.preOriginal || Object.fromEntries(PRE_FIELDS.map(([k]) => [k, t[k] || ''])); o.preEdits = (t.preEdits || []).concat([{ at: now, fields: changed }]); }
+    }
+    const sc = document.getElementById('f-attachSnap');
+    if (sc && sc.checked) { const s = pendingSnap(); if (s) { o.checklistSnap = s; markSnapUsed(base.n); } }
+    delete o.used;
+    return o;
+  }
+  /* ---- fiche trade : blocs ajoutés ---- */
+  function v3Details(t) {
+    const D = (l, v) => isSet(v) ? `<div><b>${l}</b>${esc(v)}</div>` : '';
+    const emo = k => t['emo' + k] ? t['emo' + k] + (isSet(t['emo' + k + 'Lvl']) ? ' (' + t['emo' + k + 'Lvl'] + '/5)' : '') + (t['emo' + k + 'Note'] ? ' – ' + t['emo' + k + 'Note'] : '') : '';
+    const kzTxt = t.killzoneAuto === 'time' ? (t.killzone === 'Yes' ? '✓ ' + (t.killzoneName || 'oui') : '✗ hors killzone') + ' (auto, heure)' : t.killzoneAuto === 'session' ? (t.killzone === 'Yes' ? '✓' : '✗') + ' (auto, session)' : t.killzone;
+    let h = `<div class="details">${D('Heure d\'entrée', t.entryTime)}${D('Heure de sortie', t.exitTime)}${D('Killzone', kzTxt)}${D('Setup', t.setup)}${D('POI d\'exécution', t.execPoi)}${D('R prévu (TP initial)', isSet(t.plannedR) ? sgn(t.plannedR) + ' R' : '')}${D('Type de sortie', t.exitType)}${D('MAE', isSet(t.mae) ? num(t.mae) + ' R' : '')}${D('MFE', isSet(t.mfe) ? num(t.mfe) + ' R' : '')}
+      ${IS_BT ? '' : D('Émotion entrée', emo('Entry')) + D('Émotion pendant', emo('During')) + D('Émotion sortie', emo('Exit'))}${D('Erreurs (tags)', (t.mistakeTags || []).join(', '))}</div>`;
+    if (t.preLockedAt) h += `<div class="lockbar">🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}${t.preEdits && t.preEdits.length ? ` · <b>modifiés après coup</b> le ${esc(fmtStamp(t.preEdits[t.preEdits.length - 1].at))} (${esc(t.preEdits.map(e => e.fields.join(', ')).join(' ; '))}) — valeurs d'origine : ${esc(Object.entries(t.preOriginal || {}).map(([k, v]) => k + '=' + (v || '—')).join(', '))}` : ''}</div>`;
+    const s = t.checklistSnap;
+    if (s) h += `<details class="snap-view"><summary>📌 Checklist figée à ${esc(s.time)} : ${s.done}/${s.total} (${esc(s.planName || '')})</summary><ul>${(s.items || []).map(i => `<li class="${i.done ? 'ok' : 'ko'}">${i.done ? '✓' : '✗'} ${esc(i.text)}${i.note ? `<div class="muted small">${esc(i.note)}</div>` : ''}</li>`).join('')}</ul></details>`;
+    return h;
+  }
+
+  /* ---- statistiques (tests exacts, Welch) ---- */
+  const LF = [0]; for (let i = 1; i <= 6000; i++) LF[i] = LF[i - 1] + Math.log(i);
+  function fisherP(a, b, c, d) {
+    const n = a + b + c + d, r1 = a + b, c1 = a + c; if (!n || n > 6000) return null;
+    const lp = x => LF[r1] + LF[n - r1] + LF[c1] + LF[n - c1] - LF[n] - LF[x] - LF[r1 - x] - LF[c1 - x] - LF[n - r1 - c1 + x];
+    const p0 = lp(a); let s = 0;
+    for (let x = Math.max(0, c1 - (n - r1)); x <= Math.min(r1, c1); x++) { const l = lp(x); if (l <= p0 + 1e-9) s += Math.exp(l); }
+    return Math.min(1, s);
+  }
+  function vLgamma(x) { const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5]; let y = x, t = x + 5.5; t -= (x + 0.5) * Math.log(t); let ser = 1.000000000190015; for (let j = 0; j < 6; j++) ser += c[j] / ++y; return -t + Math.log(2.5066282746310005 * ser / x); }
+  function vBetacf(a, b, x) { const F = 1e-300; let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap; if (Math.abs(d) < F) d = F; d = 1 / d; let h = d; for (let m = 1; m <= 300; m++) { const m2 = 2 * m; let aa = m * (b - m) * x / ((qam + m2) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < F) d = F; c = 1 + aa / c; if (Math.abs(c) < F) c = F; d = 1 / d; h *= d * c; aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2)); d = 1 + aa * d; if (Math.abs(d) < F) d = F; c = 1 + aa / c; if (Math.abs(c) < F) c = F; d = 1 / d; const del = d * c; h *= del; if (Math.abs(del - 1) < 3e-15) break; } return h; }
+  function vIbeta(x, a, b) { if (x <= 0) return 0; if (x >= 1) return 1; const bt = Math.exp(vLgamma(a + b) - vLgamma(a) - vLgamma(b) + a * Math.log(x) + b * Math.log(1 - x)); return x < (a + 1) / (a + b + 2) ? bt * vBetacf(a, b, x) / a : 1 - bt * vBetacf(b, a, 1 - x) / b; }
+  function welchP(x, y) {
+    const n1 = x.length, n2 = y.length; if (n1 < 2 || n2 < 2) return null;
+    const m = a => a.reduce((s, v) => s + v, 0) / a.length, v = (a, mu) => a.reduce((s, q) => s + (q - mu) ** 2, 0) / (a.length - 1);
+    const m1 = m(x), m2 = m(y), v1 = v(x, m1) / n1, v2 = v(y, m2) / n2; if (v1 + v2 === 0) return m1 === m2 ? 1 : 0;
+    const tt = (m1 - m2) / Math.sqrt(v1 + v2), df = (v1 + v2) ** 2 / (v1 * v1 / (n1 - 1) + v2 * v2 / (n2 - 1));
+    return vIbeta(df / (df + tt * tt), df / 2, 0.5);
+  }
+  const fmtP = p => p === null || p === undefined ? '–' : p < 0.001 ? '< 0,001' : p.toFixed(3).replace('.', ',');
+  const rets = ts => ts.filter(t => S.filled(t.ret)).map(t => Number(t.ret));
+  const meanOf = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+  const T975 = df => df < 1 ? NaN : df <= 30 ? [0, 12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042][df] : df <= 60 ? 2.0 : 1.96;
+  function meanCI(a) { const n = a.length; if (n < 2) return [null, null]; const mu = meanOf(a), sd = Math.sqrt(a.reduce((s, v) => s + (v - mu) ** 2, 0) / (n - 1)), h = T975(n - 1) * sd / Math.sqrt(n); return [mu - h, mu + h]; }
+
+  /* ---- espérance glissante (20 trades) ---- */
+  function rollingExp(trades, w) {
+    const rs = trades.filter(takenT).filter(t => S.filled(t.ret)).sort((a, b) => (a.date + String(a.n).padStart(6, '0')).localeCompare(b.date + String(b.n).padStart(6, '0'))).map(t => Number(t.ret));
+    const pts = [], cum = []; let s = 0;
+    rs.forEach((r, i) => { s += r; cum.push([i + 1, s / (i + 1)]); if (i + 1 >= w) pts.push([i + 1, meanOf(rs.slice(i + 1 - w, i + 1))]); });
+    return { pts, cum, n: rs.length, last: rs.slice(-w) };
+  }
+  function e20Pill() {
+    if (!DB || !DB.trades) return '';
+    const r = rollingExp(DB.trades, 20); if (r.n < 20) return '';
+    const e = r.pts[r.pts.length - 1][1];
+    return e < 0 ? `<span class="gr-pill gr-pill-danger" title="Espérance des 20 derniers trades négative : ouvre l'onglet Analyse">📉 E20 ${sgn(e)}R</span>` : '';
+  }
+
+  /* ---- ONGLET ANALYSE ---- */
+  const ERR_DEFS = () => [
+    ...lst('mistakeTags').map(tag => ({ key: tag, f: t => (t.mistakeTags || []).indexOf(tag) >= 0 })),
+    ...[...new Set(DB.trades.flatMap(t => t.mistakeTags || []))].filter(x => lst('mistakeTags').indexOf(x) < 0).map(tag => ({ key: tag, f: t => (t.mistakeTags || []).indexOf(tag) >= 0 })),
+    { key: 'FOMO / impulsion = Yes', f: t => t.fomo === 'Yes' }, { key: 'Plan non suivi', f: t => t.planFollow === 'No' },
+    { key: 'Revenge trade', f: t => t.revenge === 'Yes' }, { key: 'Overtrade', f: t => t.overtrade === 'Yes' },
+    ...Object.keys(GR_BREAK_NAMES).map(k => ({ key: 'Garde-fou : ' + GR_BREAK_NAMES[k], f: t => (t.guardrailsBroken || []).indexOf(k) >= 0 })),
+    { key: 'Hors killzone', f: t => t.killzone === 'No' },
+    { key: 'Erreur écrite mais non taguée', f: t => !!(t.mistakes && !(t.mistakeTags || []).length) },
+  ];
+  const isClean = t => !(t.mistakeTags || []).length && !t.mistakes && t.fomo !== 'Yes' && t.planFollow !== 'No' && t.revenge !== 'Yes' && t.overtrade !== 'Yes' && !(t.guardrailsBroken || []).length;
+  function renderAnalysis() {
+    const all = DB.trades.filter(takenT).filter(t => S.filled(t.ret));
+    const roll = rollingExp(DB.trades, 20), cur = roll.pts.length ? roll.pts[roll.pts.length - 1][1] : null, curCI = meanCI(roll.last);
+    const clean = all.filter(isClean), eClean = meanOf(rets(clean));
+    const rows = ERR_DEFS().map(d => { const ts = all.filter(d.f), r = rets(ts), e = meanOf(r); return { key: d.key, n: ts.length, wr: ts.length ? r.filter(x => x > 0).length / ts.length : null, net: r.reduce((s, v) => s + v, 0), e, cost: e === null || eClean === null ? null : (eClean - e) * ts.length }; }).filter(r => r.n).sort((a, b) => (b.cost || 0) - (a.cost || 0));
+    const maxCost = Math.max(1, ...rows.map(r => Math.abs(r.cost || 0)));
+    const g = fn => S.groupBy(all, fn);
+    const withPlan = all.filter(t => isSet(t.plannedR)), mm = all.filter(t => isSet(t.mae) || isSet(t.mfe));
+    const winners = mm.filter(t => t.ret > 0 && isSet(t.mae)), losers = mm.filter(t => t.ret < 0 && isSet(t.mfe));
+    const share = (a, f) => a.length ? pct(a.filter(f).length / a.length) + ` (${a.filter(f).length}/${a.length})` : '–';
+    const byExit = {}; withPlan.forEach(t => { const k = t.exitType || '(non renseigné)'; (byExit[k] = byExit[k] || []).push(t); });
+    const locked = DB.trades.filter(t => t.preLockedAt), edited = locked.filter(t => t.preEdits && t.preEdits.length);
+    const untagged = DB.trades.filter(t => t.mistakes && !(t.mistakeTags || []).length).length;
+    $('#main').innerHTML = `
+      <h1>Analyse</h1>
+      <h2>Espérance glissante (20 derniers trades)</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="l">E20 actuelle</div><div class="v ${cls(cur)}">${cur === null ? '–' : sgn(cur, 3) + ' R'}</div><div class="s">${curCI[0] === null ? (roll.n < 20 ? `Il faut 20 trades (${roll.n} pour l'instant)` : '') : `IC95 % [${num(curCI[0])} ; ${num(curCI[1])}]`}</div></div>
+        <div class="kpi"><div class="l">Espérance globale</div><div class="v ${cls(meanOf(rets(all)))}">${sgn(meanOf(rets(all)), 3)} R</div><div class="s">${all.length} trades</div></div>
+        <div class="kpi"><div class="l">Fenêtres E20 &lt; 0</div><div class="v">${roll.pts.length ? pct(roll.pts.filter(p => p[1] < 0).length / roll.pts.length) : '–'}</div><div class="s">${roll.pts.filter(p => p[1] < 0).length}/${roll.pts.length} fenêtres</div></div>
+      </div>
+      ${cur !== null && cur < 0 ? `<div class="gr-alert gr-danger">📉 L'espérance des 20 derniers trades est négative (${sgn(cur)} R). Sur 20 trades l'intervalle de confiance reste large (${num(curCI[0])} à ${num(curCI[1])} R) : c'est un signal de vigilance, pas une preuve que l'edge a disparu. Relis les erreurs ci-dessous avant de changer de stratégie.</div>` : ''}
+      <div class="card">${lineChart({ series: [{ name: 'E20', color: 'var(--accent)', pts: roll.pts }, { name: 'Espérance cumulée', color: 'var(--muted)', pts: roll.cum.filter(p => p[0] >= 20) }], yFmt: v => v.toFixed(2) })}
+        <p class="muted small">Bleu : moyenne des R des 20 derniers trades à chaque instant. Gris : espérance depuis le début.${IS_BT ? ' Trades sans entrée exclus.' : ''}</p></div>
+
+      <h2>Coût des erreurs</h2>
+      <div class="card"><p class="muted small">Référence : <b>${clean.length} trades « propres »</b> (aucune erreur, plan suivi, pas de FOMO / revenge / overtrade / garde-fou enfreint), espérance <b>${sgn(eClean)} R</b>. Coût estimé = (espérance des trades propres − espérance du groupe) × n : c'est le R perdu par rapport à ce que ces trades auraient rapporté s'ils avaient été « propres ». Un trade peut avoir plusieurs erreurs : les coûts se recoupent et ne s'additionnent pas. Lignes grisées : n &lt; 5, non fiable.</p>
+        ${untagged ? `<div class="note">${untagged} trade(s) ont une erreur écrite sans tag : utilise <b>Données → Nettoyage</b> pour leur proposer des tags.</div>` : ''}
+        <div class="twrap" style="max-height:none"><table><thead><tr><th>Erreur</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Net R</th><th class="num">Espérance</th><th class="num">Coût estimé</th><th style="min-width:120px"></th></tr></thead><tbody>
+        ${rows.map(r => `<tr class="${r.n < 5 ? 'low' : ''}"><td>${esc(r.key)}</td><td class="num">${r.n}</td><td class="num">${pct(r.wr)}</td><td class="num ${cls(r.net)}">${sgn(r.net)}</td><td class="num ${cls(r.e)}">${sgn(r.e)}</td><td class="num ${r.cost > 0 ? 'neg' : ''}">${r.cost === null ? '–' : (r.cost > 0 ? '−' : '+') + num(Math.abs(r.cost)) + ' R'}</td><td><div class="costbar"><span style="width:${Math.round(Math.abs(r.cost || 0) / maxCost * 100)}%;background:${r.cost > 0 ? 'var(--loss)' : 'var(--win)'}"></span></div></td></tr>`).join('') || '<tr><td colspan="7" class="muted">Aucune erreur enregistrée.</td></tr>'}
+        </tbody></table></div></div>
+
+      <h2>Sortie : R prévu vs réalisé</h2>
+      <div class="card">${withPlan.length ? `<div class="twrap" style="max-height:none"><table><thead><tr><th>Type de sortie</th><th class="num">n</th><th class="num">R prévu moy.</th><th class="num">R réalisé moy.</th><th class="num">Écart moy.</th><th class="num">R laissé (total)</th></tr></thead><tbody>
+        ${Object.entries(byExit).sort((a, b) => b[1].length - a[1].length).map(([k, ts]) => { const p = meanOf(ts.map(t => +t.plannedR)), r = meanOf(rets(ts)), left = ts.filter(t => t.ret > -1 && t.ret < t.plannedR).reduce((s, t) => s + (t.plannedR - t.ret), 0); return `<tr class="${ts.length < 5 ? 'low' : ''}"><td>${esc(k)}</td><td class="num">${ts.length}</td><td class="num">${sgn(p)}</td><td class="num ${cls(r)}">${sgn(r)}</td><td class="num ${cls(r - p)}">${sgn(r - p)}</td><td class="num">${num(left)}</td></tr>`; }).join('')}
+        </tbody></table></div><p class="muted small">« R laissé » = somme de (R prévu − R réalisé) pour les trades sortis entre −1 R et le TP prévu (sorties manuelles, BE, partielles). ${withPlan.length} trade(s) avec R prévu.</p>` : '<p class="muted">Renseigne « R prévu (TP initial) » et « Type de sortie » dans tes prochains trades pour voir cette analyse.</p>'}</div>
+
+      <h2>MAE / MFE</h2>
+      <div class="card">${mm.length ? `<div class="kpis">
+        <div class="kpi"><div class="l">Gagnants : MAE moyenne</div><div class="v">${num(meanOf(winners.map(t => +t.mae)))} R</div><div class="s">MAE ≥ 0,8 R : ${share(winners, t => t.mae >= 0.8)}</div></div>
+        <div class="kpi"><div class="l">Perdants : MFE moyenne</div><div class="v">${num(meanOf(losers.map(t => +t.mfe)))} R</div><div class="s">MFE ≥ 1 R : ${share(losers, t => t.mfe >= 1)}</div></div>
+        <div class="kpi"><div class="l">Perdants allés à mi-TP</div><div class="v">${share(losers.filter(t => isSet(t.plannedR)), t => t.mfe >= t.plannedR / 2)}</div><div class="s">MFE ≥ 50 % du R prévu</div></div>
+      </div><p class="muted small">Beaucoup de gagnants avec MAE ≥ 0,8 R : le SL est proche d'être touché (SL juste ou entrée tôt). Beaucoup de perdants avec MFE ≥ 1 R : une règle de BE ou de sortie partielle aurait pu sauver ces trades. ${mm.length} trade(s) renseigné(s) ; en dessous d'environ 20 par groupe, ces pourcentages sont indicatifs.</p>` : '<p class="muted">Renseigne MAE et MFE dans tes prochains trades pour voir cette analyse.</p>'}</div>
+
+      <h2>Biais de rétrospective</h2>
+      <div class="card"><p>${locked.length} trade(s) avec critères pré-entrée figés · <b>${edited.length}</b> modifié(s) après coup${locked.length ? ` (${pct(edited.length / locked.length)})` : ''} · ${DB.trades.filter(t => t.checklistSnap).length} trade(s) avec checklist figée jointe.</p>
+        ${edited.length ? `<p class="muted small">Trades modifiés : ${edited.map(t => '#' + t.n).join(', ')}. Ces modifications sont conservées avec les valeurs d'origine.</p>` : ''}</div>
+
+      <h2>Par catégorie</h2>
+      <div class="grid2">${groupTable('Setup', g(t => t.setup))}${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Type de sortie', g(t => t.exitType))}${groupTable('Gestion (normalisée)', g(t => normMgmt(t.management)))}${groupTable('Killzone', g(t => t.killzone === 'Yes' ? 'Dans une killzone' : t.killzone === 'No' ? 'Hors killzone' : ''))}
+        ${IS_BT ? '' : groupTable('Émotion à l\'entrée', g(t => t.emoEntry)) + groupTable('Émotion pendant le trade', g(t => t.emoDuring)) + groupTable('Émotion à la sortie', g(t => t.emoExit)) + groupTable('Intensité émotion entrée', g(t => isSet(t.emoEntryLvl) ? t.emoEntryLvl + '/5' : ''))}</div>`;
+  }
+
+  /* ---- ONGLET BACKTEST VS LIVE ---- */
+  let BVL = { dim: 'entry', other: null, loading: false, err: '', src: '' };
+  const BVL_DIMS = [['entry', 'Modèle d\'entrée', t => t.entry], ['session', 'Session', t => t.session], ['direction', 'Direction', t => t.direction], ['setup', 'Setup', t => t.setup], ['execPoi', 'POI d\'exécution', t => t.execPoi],
+    ['tp', 'Take profit', t => t.tp], ['sl', 'Stop loss', t => t.sl], ['mgmt', 'Gestion', t => normMgmt(t.management)], ['day', 'Jour', t => S.dayName(t.date)], ['instrument', 'Instrument', t => t.instrument], ['kz', 'Killzone', t => t.killzone === 'Yes' ? 'Dans' : t.killzone === 'No' ? 'Hors' : '']];
+  const noEntry = t => t.entry === 'No Entry' || Number(t.risk) === 0 || (!t.entry && !Number(t.ret));
+  function bvlStats(ts) { const r = rets(ts), w = r.filter(x => x > 0).length, ci = S.wilson(w, r.length); return { n: r.length, w, wr: r.length ? w / r.length : null, wrCI: ci, e: meanOf(r), eCI: meanCI(r), r }; }
+  function loadOther() {
+    BVL.loading = true; BVL.err = '';
+    const p = Drive.peek ? Drive.peek(OTHER_FILE) : Promise.resolve({ db: null });
+    return p.then(res => { BVL.other = res.db; BVL.src = res.source; BVL.loading = false; }).catch(e => { BVL.loading = false; BVL.err = e.message; });
+  }
+  function renderBvL() {
+    if (!BVL.other && !BVL.loading && !BVL.err) { $('#main').innerHTML = '<h1>Backtest vs Live</h1><p class="muted">Chargement de l\'autre journal…</p>'; loadOther().then(() => { if (view === 'bvl') renderBvL(); }); return; }
+    if (!BVL.other) { $('#main').innerHTML = `<h1>Backtest vs Live</h1><div class="note">Impossible de lire <code>${OTHER_FILE}</code>${BVL.err ? ' : ' + esc(BVL.err) : ''}. Connecte-toi à Google (ou ouvre l'autre journal une fois sur cet appareil), puis <button class="btn" id="b-retry">Réessayer</button></div>`; $('#b-retry').onclick = () => { BVL.err = ''; renderBvL(); }; return; }
+    const btAll = (IS_BT ? DB.trades : BVL.other.trades || []), lvAll = (IS_BT ? BVL.other.trades || [] : DB.trades);
+    const bt = btAll.filter(t => S.filled(t.ret) && !noEntry(t)), lv = lvAll.filter(t => S.filled(t.ret));
+    const dim = BVL_DIMS.find(d => d[0] === BVL.dim) || BVL_DIMS[0];
+    const keys = [...new Set([...bt, ...lv].map(dim[2]).filter(isSet))];
+    const row = (label, a, b, bold) => {
+      const A = bvlStats(a), B = bvlStats(b);
+      const pW = A.n && B.n ? fisherP(A.w, A.n - A.w, B.w, B.n - B.w) : null, pE = welchP(A.r, B.r);
+      const sig = (pW !== null && pW < 0.05) || (pE !== null && pE < 0.05);
+      return { n: Math.min(A.n, B.n), html: `<tr class="${Math.min(A.n, B.n) < 10 ? 'low' : ''}${sig ? ' sig' : ''}"><td>${bold ? '<b>' + esc(label) + '</b>' : esc(label)}</td>
+        <td class="num">${A.n}</td><td class="num">${pct(A.wr)}<div class="muted small">${A.n ? `[${pct(A.wrCI[0])} ; ${pct(A.wrCI[1])}]` : ''}</div></td><td class="num ${cls(A.e)}">${sgn(A.e)}<div class="muted small">${A.eCI[0] === null ? '' : `[${num(A.eCI[0])} ; ${num(A.eCI[1])}]`}</div></td>
+        <td class="num">${B.n}</td><td class="num">${pct(B.wr)}<div class="muted small">${B.n ? `[${pct(B.wrCI[0])} ; ${pct(B.wrCI[1])}]` : ''}</div></td><td class="num ${cls(B.e)}">${sgn(B.e)}<div class="muted small">${B.eCI[0] === null ? '' : `[${num(B.eCI[0])} ; ${num(B.eCI[1])}]`}</div></td>
+        <td class="num ${cls(B.e !== null && A.e !== null ? B.e - A.e : null)}">${B.e !== null && A.e !== null ? sgn(B.e - A.e) : '–'}</td><td class="num">${fmtP(pW)}</td><td class="num">${fmtP(pE)}</td></tr>` };
+    };
+    const rows = keys.map(k => Object.assign(row(k, bt.filter(t => dim[2](t) === k), lv.filter(t => dim[2](t) === k)), { k })).sort((a, b) => b.n - a.n);
+    const tested = rows.filter(r => r.n >= 1).length;
+    const head = `<thead><tr><th rowspan="2">Groupe</th><th colspan="3" class="ctr">Backtest</th><th colspan="3" class="ctr">Live (21D)</th><th rowspan="2" class="num">Δ espérance<br>(live − BT)</th><th rowspan="2" class="num">p win rate<br>(Fisher)</th><th rowspan="2" class="num">p espérance<br>(Welch)</th></tr><tr><th class="num">n</th><th class="num">Win rate</th><th class="num">Espérance</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Espérance</th></tr></thead>`;
+    $('#main').innerHTML = `
+      <h1>Backtest vs Live</h1>
+      <p class="muted small">Backtest : ${bt.length} trades pris (${btAll.length - bt.length} sans entrée exclus) · Live : ${lv.length} trades · autre journal lu depuis ${BVL.src === 'drive' ? 'Google Drive' : 'le cache de cet appareil'} <button class="btn" id="b-reload">Recharger</button></p>
+      <div class="twrap" style="max-height:none"><table class="bvl">${head}<tbody>${row('Tous les trades', bt, lv, true).html}</tbody></table></div>
+      <div class="bar" style="margin-top:14px"><label>Comparer par<select id="b-dim">${BVL_DIMS.map(d => `<option value="${d[0]}"${d[0] === dim[0] ? ' selected' : ''}>${esc(d[1])}</option>`).join('')}</select></label></div>
+      <div class="twrap" style="max-height:none"><table class="bvl">${head}<tbody>${rows.map(r => r.html).join('') || '<tr><td colspan="10" class="muted">Aucune donnée pour ce critère.</td></tr>'}</tbody></table></div>
+      <div class="note">Entre crochets : intervalles de confiance à 95 % (Wilson pour le win rate, Student pour l'espérance). Lignes surlignées : p &lt; 0,05 sur au moins un test. Lignes grisées : moins de 10 trades d'un côté, non fiable. Avec ${tested} groupes testés, il faut s'attendre à environ ${num(tested * 0.05, 1)} « faux positif » au seuil de 5 % : un seuil corrigé (Bonferroni) serait p &lt; ${fmtP(0.05 / Math.max(1, tested))}. Le backtest et le live ne couvrent ni la même période ni les mêmes conditions (exécution réelle, émotions, spreads) : un écart signale une différence à investiguer, pas sa cause.</div>`;
+    $('#b-dim').onchange = e => { BVL.dim = e.target.value; renderBvL(); };
+    $('#b-reload').onclick = () => { BVL.other = null; renderBvL(); };
+  }
+
+  /* ---- NETTOYAGE DES DONNÉES ---- */
+  function cleanupPlan() {
+    const groups = [];
+    const mg = DB.trades.filter(t => t.management && normMgmt(t.management) !== t.management);
+    const unknownMg = [...new Set(DB.trades.map(t => normMgmt(t.management)).filter(v => v && lst('management').indexOf(v) < 0))];
+    if (mg.length) groups.push({ id: 'mgmt', title: `Gestion du trade : harmoniser ${mg.length} valeur(s)`, ex: [...new Set(mg.map(t => t.management + ' → ' + normMgmt(t.management)))], apply: () => mg.forEach(t => t.management = normMgmt(t.management)) });
+    const ty = [];
+    Object.entries(TYPOS).forEach(([f, map]) => DB.trades.forEach(t => { if (map[t[f]]) ty.push([t, f, map[t[f]]]); }));
+    if (IS_BT) DB.trades.forEach(t => { if (t.agg && t.agg.entry === 'Strar') ty.push([t.agg, 'entry', 'Star']); });
+    if (ty.length) groups.push({ id: 'typos', title: `Orthographe : corriger ${ty.length} valeur(s)`, ex: [...new Set(ty.map(([o, f, v]) => o[f] + ' → ' + v))], apply: () => ty.forEach(([o, f, v]) => o[f] = v) });
+    const st = DB.trades.map(t => [t, mapSetup(TYPOS.setup[t.setup] || t.setup, t.session)]).filter(x => x[1]);
+    const stLeft = DB.trades.filter(t => t.setup && lst('setups').indexOf(t.setup) < 0 && !mapSetup(TYPOS.setup[t.setup] || t.setup, t.session));
+    if (st.length) groups.push({ id: 'setup', title: `Setup : convertir ${st.length} trade(s) vers la nouvelle liste (Reversal → Sweep Asia, Continuation → Continuation, selon la session)`, ex: [...new Set(st.map(([t, v]) => `${t.setup} + ${t.session} → ${v}`))], note: stLeft.length ? `${stLeft.length} trade(s) gardent leur ancien setup (session hors London/NY) : ${stLeft.map(t => '#' + t.n).join(', ')}` : '', apply: () => st.forEach(([t, v]) => t.setup = v) });
+    const tg = DB.trades.filter(t => t.mistakes && !(t.mistakeTags || []).length).map(t => [t, suggestTags(t.mistakes)]).filter(x => x[1].length);
+    if (tg.length) groups.push({ id: 'tags', title: `Erreurs : ajouter des tags à ${tg.length} trade(s) d'après le texte`, ex: tg.map(([t, tags]) => `#${t.n} « ${trunc(t.mistakes, 60)} » → ${tags.join(', ')}`), apply: () => tg.forEach(([t, tags]) => t.mistakeTags = tags) });
+    const dates = DB.trades.map(t => t.date).filter(Boolean).sort();
+    if (dates.length) {
+      const lim = addDaysISO(dates[0], -31), rv = (DB.reviews || []).filter(r => r.start && r.start < lim);
+      if (rv.length) groups.push({ id: 'reviews', title: `Revues : supprimer ${rv.length} revue(s) datée(s) avant le début de ce journal (${dates[0]})`, ex: rv.map(r => `${TYPES[r.type] || r.type} ${r.start}`), apply: () => { DB.reviews = DB.reviews.filter(r => rv.indexOf(r) < 0); } });
+    }
+    const rr = DB.trades.filter(t => 'rr' in t);
+    if (rr.length) groups.push({ id: 'rr', title: `Supprimer le champ « RR asymétrique » de ${rr.length} trade(s)`, ex: ['Le grade du setup est désormais calculé sur 4 critères : Bias, POI, Killzone, Sweep'], apply: () => rr.forEach(t => delete t.rr) });
+    return { groups, unknownMg };
+  }
+  function cleanupHTML() {
+    return `<h2>🧹 Nettoyage des données</h2><div class="card" id="cl-card"><p class="muted small">Analyse le journal et propose des corrections. Rien n'est modifié avant que tu cliques « Appliquer ». Pense à exporter un JSON avant, par sécurité.</p><div class="bar"><button class="btn" id="cl-scan">Analyser</button></div><div id="cl-out"></div></div>`;
+  }
+  function cleanupWire() {
+    $('#cl-scan').onclick = () => {
+      const p = cleanupPlan();
+      $('#cl-out').innerHTML = p.groups.length ? p.groups.map(g => `<div class="cl-group"><label><input type="checkbox" class="cl-ck" data-id="${g.id}" checked> <b>${esc(g.title)}</b></label><details><summary class="muted small">Voir le détail (${g.ex.length})</summary><ul>${g.ex.slice(0, 80).map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>${g.note ? `<p class="muted small">${esc(g.note)}</p>` : ''}</div>`).join('') +
+        (p.unknownMg.length ? `<p class="muted small">Valeurs de gestion hors liste conservées : ${esc(p.unknownMg.join(', '))}. Modifie ces trades à la main si besoin.</p>` : '') +
+        '<div class="actions"><button class="btn primary" id="cl-apply">Appliquer la sélection</button></div>' : '<p>✅ Rien à corriger.</p>';
+      if (!p.groups.length) return;
+      $('#cl-apply').onclick = async () => {
+        const ids = Array.prototype.filter.call(document.querySelectorAll('.cl-ck'), c => c.checked).map(c => c.dataset.id);
+        if (!ids.length) return;
+        if (!confirm('Appliquer ' + ids.length + ' correction(s) au journal ?')) return;
+        p.groups.filter(g => ids.indexOf(g.id) >= 0).forEach(g => g.apply());
+        ['setups', 'management', 'execPoi', 'exitTypes', 'mistakeTags'].concat(IS_BT ? [] : ['emotions']).forEach(k => { if (!DB.lists[k] || !DB.lists[k].length) DB.lists[k] = DEF_LISTS[k].slice(); });
+        if (await save('Nettoyage appliqué')) renderData();
+      };
+    };
+  }
+  const V3_LISTS = [['setups', 'Setups'], ['execPoi', 'POI d\'exécution'], ['management', 'Gestion du trade'], ['exitTypes', 'Types de sortie'], ['mistakeTags', 'Tags d\'erreurs']].concat(FILE_NAME === 'journal-backtest.json' ? [] : [['emotions', 'Émotions']]);
+
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {
-    const cols = ['n', 'date', 'instrument', 'direction', 'session', 'duration', 'entry', 'sl', 'tp', 'risk', 'ret', '_result', '_cum', '_dd', '_grade', 'planFollow', 'fomo', 'overtrade', 'revenge', 'guardrailsBroken', 'management', 'mistakes', 'notes', 'improvement', 'bias', 'poi', 'killzone', 'sweep', 'rr'];
+    const cols = ['n', 'date', 'instrument', 'direction', 'session', 'duration', 'entry', 'sl', 'tp', 'risk', 'ret', '_result', '_cum', '_dd', '_grade', 'planFollow', 'fomo', 'overtrade', 'revenge', 'guardrailsBroken', 'management', 'mistakes', 'notes', 'improvement', 'bias', 'poi', 'killzone', 'sweep'];
+    cols.push('entryTime', 'exitTime', 'killzoneAuto', 'setup', 'execPoi', 'plannedR', 'exitType', 'mae', 'mfe', 'mistakeTags', 'emoEntry', 'emoEntryLvl', 'emoEntryNote', 'emoDuring', 'emoDuringLvl', 'emoDuringNote', 'emoExit', 'emoExitLvl', 'emoExitNote', 'preLockedAt');
+    const seen = {}; for (let i = 0; i < cols.length; i++) { if (seen[cols[i]]) cols.splice(i--, 1); else seen[cols[i]] = 1; }
     const q = v => { v = v === null || v === undefined ? '' : Array.isArray(v) ? v.join(' | ') : String(v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const head = [...cols.slice(0, 11), 'agg_entry', 'agg_sl', 'agg_tp', 'agg_risk', 'agg_ret', 'delta_agg_minus_cons', ...cols.slice(11), ...SLOTS.map(([, l]) => 'screens_' + l)];
     return '\ufeff' + [head.join(','), ...enriched().map(t => { const a = t.agg || {}, d = delta(t);
@@ -2171,10 +2558,12 @@
       <div class="card"><p><b>${DB.trades.length}</b> trades · <b>${DB.reviews.length}</b> revue(s) · <b>${nShots}</b> lien(s) de capture · stockés dans <code>journal-backtest.json</code> sur votre Google Drive personnel. Les données sont aussi cachées localement dans le navigateur pour un accès hors connexion.</p>
         <div class="bar"><button class="btn" id="x-json">Exporter JSON</button><button class="btn" id="x-csv">Exporter CSV (Excel)</button><label style="flex-direction:row;align-items:center;gap:8px"><span class="btn" style="pointer-events:none">Importer un JSON…</span><input type="file" id="x-imp" accept=".json,application/json"></label></div>
         <p class="muted small">L'import REMPLACE tout le journal actuel (la sauvegarde du jour est conservée).</p></div>
+      ${cleanupHTML()}
       <h2>Listes proposées dans le formulaire</h2>
-      <div class="card"><div class="form">${LISTS.map(([k, l]) => `<label>${l} (une valeur par ligne)<textarea id="l-${k}" style="min-height:110px">${esc(list(k).join('\n'))}</textarea></label>`).join('')}</div><div class="actions"><button class="btn primary" id="l-save">Enregistrer les listes</button></div>
+      <div class="card"><div class="form">${LISTS.concat(V3_LISTS).map(([k, l]) => `<label>${l} (une valeur par ligne)<textarea id="l-${k}" style="min-height:110px">${esc(list(k).join('\n'))}</textarea></label>`).join('')}</div><div class="actions"><button class="btn primary" id="l-save">Enregistrer les listes</button></div>
       <p class="muted small">Les valeurs déjà utilisées dans vos trades sont toujours proposées en plus de ces listes.</p></div>`;
     $('#x-json').onclick = () => download(`backtest-${todayISO()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+    cleanupWire();
     $('#x-csv').onclick = () => download(`backtest-${todayISO()}.csv`, toCSV(), 'text/csv');
     $('#x-imp').onchange = async e => {
       const file = e.target.files[0]; if (!file) return;
@@ -2186,16 +2575,16 @@
         if (await save('Journal importé')) render();
       } catch (err) { alert('Import impossible : ' + err.message); }
     };
-    $('#l-save').onclick = async () => { LISTS.forEach(([k]) => DB.lists[k] = $('#l-' + k).value.split('\n').map(s => s.trim()).filter(Boolean)); await save('Listes enregistrées'); };
+    $('#l-save').onclick = async () => { LISTS.concat(V3_LISTS).forEach(([k]) => DB.lists[k] = $('#l-' + k).value.split('\n').map(s => s.trim()).filter(Boolean)); await save('Listes enregistrées'); };
   }
 
   /* ---------- routage ---------- */
-  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'data'];
+  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'bvl', 'data'];
   function render() {
     hideNews(); hideTrading(); updateStatusBar();
     $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
-    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, data: renderData }[view] || renderDashboard)();
+    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
   }
   function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = VIEWS.includes(v) ? v : 'dashboard'; render(); }
   window.addEventListener('hashchange', route);

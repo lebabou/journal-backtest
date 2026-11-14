@@ -255,3 +255,31 @@ tr.low td{opacity:.5}
 .fp-opt:hover{background:var(--panel2)}
 .fp-opt input{margin-top:3px}
 .fp-opt small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+/* V3 */
+.emo-field{display:flex;flex-direction:column;gap:6px}
+.emo-row{display:flex;gap:6px}
+.emo-row select{flex:1;min-width:0}
+.kz-ind{display:flex;align-items:flex-end;gap:8px;padding-bottom:8px;flex-wrap:wrap}
+.snap-box{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--accent);border-radius:8px;background:rgba(59,130,246,.08);grid-column:1/-1}
+.lockbar{grid-column:1/-1;padding:8px 12px;border-radius:8px;background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.45);font-size:13px;margin:10px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lockbar.open{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.5)}
+.snap-view{margin:10px 0;padding:8px 12px;border:1px solid var(--line);border-radius:8px}
+.snap-view ul{list-style:none;margin:8px 0 0;padding:0}
+.snap-view li{padding:4px 0;font-size:13px}
+.snap-view li.ok{color:var(--win)}
+.snap-view li.ko{color:var(--muted)}
+.costbar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.costbar span{display:block;height:100%}
+table.bvl th.ctr{text-align:center}
+table.bvl tr.sig td{background:rgba(59,130,246,.10)}
+.cl-group{padding:8px 0;border-bottom:1px solid var(--line)}
+.cl-group ul{margin:6px 0 0 18px;font-size:13px}
+.cl-group label{flex-direction:row!important;align-items:center;gap:8px}
+.form .wide{grid-column:1/-1}
+.form label.snap-box{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)}
+.form .ms-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.top{flex-wrap:wrap}
+nav{flex:1 1 100%;order:5;overflow-x:auto;min-width:0;scrollbar-width:thin;padding-bottom:2px}
+nav a{white-space:nowrap;flex:none}
+.form .row.emo-grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.twrap table.bvl td .muted.small{font-size:11px;white-space:nowrap}

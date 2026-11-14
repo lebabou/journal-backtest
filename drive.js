@@ -271,6 +271,19 @@
     });
   }
 
+
+  // Read-only look at ANOTHER journal file (Backtest vs Live). Never creates or writes anything.
+  function peek(name) {
+    var key = 'drive_cache_' + name, cached = null, dirty = false;
+    try { cached = JSON.parse(localStorage.getItem(key)); dirty = localStorage.getItem('drive_dirty_' + name) === '1'; } catch (e) {}
+    if (!isSignedIn() || (dirty && cached)) return Promise.resolve(cached ? { db: cached, source: 'cache' } : { db: null, source: 'none' });
+    var q = encodeURIComponent("name='" + name + "' and trashed=false");
+    return driveReq(DRIVE_API + '/files?q=' + q + '&spaces=drive&fields=files(id,modifiedTime)').then(jsonOk).then(function(d) {
+      if (!d.files || !d.files.length) return cached ? { db: cached, source: 'cache' } : { db: null, source: 'none' };
+      return readFile(d.files[0].id).then(function(db) { return { db: db, source: 'drive' }; });
+    }).catch(function(e) { if (cached) return { db: cached, source: 'cache' }; throw e; });
+  }
+
   function save(db) {
     // Always keep a local copy first, flagged as "not on Drive yet" until the upload succeeds
     try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db)); } catch (e) {}
@@ -303,6 +316,6 @@
 
   root.Drive = {
     init: init, signIn: signIn, signOut: signOut, isSignedIn: isSignedIn,
-    load: load, save: save, getCached: getCached, isDirty: isDirty, takeReturnError: takeReturnError
+    load: load, save: save, peek: peek, getCached: getCached, isDirty: isDirty, takeReturnError: takeReturnError
   };
 })(window);
