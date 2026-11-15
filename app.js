@@ -2734,10 +2734,13 @@
   const asList = j => Array.isArray(j) ? j : j && (j.data || j.events || j.items || j.results || j.calendar) || [];
   const IMP_MAP = { high: 'High', medium: 'Medium', low: 'Low', holiday: 'Holiday', '3': 'High', '2': 'Medium', '1': 'Low' };
   const fmtVal = (v, e) => v === null || v === undefined || v === '' ? '' : String(v) + (e && e.unit && /%/.test(e.unit) && !/%/.test(String(v)) ? '%' : '');
+  const CC2CCY = { US: 'USD', EU: 'EUR', EA: 'EUR', EZ: 'EUR', DE: 'EUR', FR: 'EUR', IT: 'EUR', ES: 'EUR', NL: 'EUR', GB: 'GBP', UK: 'GBP', JP: 'JPY', CH: 'CHF', AU: 'AUD', NZ: 'NZD', CA: 'CAD', CN: 'CNY' };
+  const CCY2CC = { USD: ['US'], EUR: ['EU', 'DE', 'FR', 'IT', 'ES'], GBP: ['GB'], JPY: ['JP'], CHF: ['CH'], AUD: ['AU'], NZD: ['NZ'], CAD: ['CA'], CNY: ['CN'] };
   function normBQ(e) {
     const ts = new Date(e.time || e.date || e.datetime).getTime();
     const imp = String(e.type || '').toLowerCase() === 'holiday' ? 'Holiday' : (IMP_MAP[String(e.importance || e.impact || '').toLowerCase()] || 'Low');
-    return { title: String(e.name || e.title || e.event || '').trim(), country: String(e.currency || e.country || '').toUpperCase(), date: e.time || e.date, ts, impact: imp, rawImp: String(e.importance || e.impact || ''),
+    const cc = String(e.countryCode || e.country || '').toUpperCase();
+    return { title: String(e.name || e.title || e.event || '').trim(), country: String(e.currency || CC2CCY[cc] || cc).toUpperCase(), cc, raw: e, date: e.time || e.date, ts, impact: imp, rawImp: String(e.importance || e.impact || ''),
       forecast: fmtVal(e.forecast, e), previous: fmtVal(e.revisedPrevious != null ? e.revisedPrevious : e.previous, e), actual: fmtVal(e.actual, e),
       eventId: e.eventId || e.id || '', allDay: e.timeMode && e.timeMode !== 'exact', src: 'bq' };
   }
@@ -2774,11 +2777,12 @@
     const bq = (async () => {
       let list = asList(await fetchJSON(`https://biquote.io/api/calendar?from=${from}&to=${to}`)).map(normBQ);
       const sp = span(list);
-      if (!sp || sp[0] > addDaysISO(from, 3) || sp[1] < addDaysISO(to, -10)) {   // plage tronquée par l'API : on redemande semaine par semaine
-        const chunks = []; for (let a = from; a < to; a = addDaysISO(a, 7)) chunks.push([a, addDaysISO(a, 7) < to ? addDaysISO(a, 7) : to]);
-        const more = await Promise.all(chunks.map(([a, z]) => fetchJSON(`https://biquote.io/api/calendar?from=${a}&to=${z}`).then(j => asList(j).map(normBQ)).catch(() => [])));
-        more.forEach(m => { list = list.concat(m); });
-      }
+      // en plus : semaine par semaine, limité aux pays de tes devises (évite toute troncature côté serveur)
+      const nc0 = newsCfg(), ccs = [...new Set(nc0.currencies.concat(newsBlockCfg().currencies).flatMap(c => CCY2CC[c] || []))].join(',');
+      const chunks = []; for (let a = from; a < to; a = addDaysISO(a, 7)) chunks.push([a, addDaysISO(a, 7) < to ? addDaysISO(a, 7) : to]);
+      const more = await Promise.all(chunks.map(([a, z]) => fetchJSON(`https://biquote.io/api/calendar?from=${a}&to=${z}${ccs ? '&countries=' + ccs : ''}`).then(j => asList(j).map(normBQ)).catch(() => [])));
+      more.forEach(m => { list = list.concat(m); });
+      diag.bqMain = sp ? sp.join('→') : 'vide';
       diag.bq = { n: list.length, span: span(list) }; return list;
     })().catch(() => { diag.bq = { err: true }; return null; });
     const ff = ym === cur ? fetchJSON('https://nfs.faireconomy.media/ff_calendar_thisweek.json').then(j => { const l = asList(j).map(normEv); diag.ff = { n: l.length, span: span(l) }; return l; }).catch(() => { diag.ff = { err: true }; return null; }) : Promise.resolve(null);
@@ -2880,7 +2884,9 @@
     // liste du jour
     const q = NUI.q.toLowerCase();
     const dayEvs = q ? [] : (byDay[NUI.day] || []);
-    const found = q ? NEWS_EVENTS.filter(e => (e.country + ' ' + e.title).toLowerCase().indexOf(q) >= 0).sort((a, b) => b.ts - a.ts).slice(0, 80) : [];
+    const ALIAS = { ppi: /producer price|\bppi\b/i, cpi: /consumer price|\bcpi\b/i, nfp: /non.?farm|payroll/i, pib: /\bgdp\b|gross domestic/i, gdp: /\bgdp\b|gross domestic/i, fomc: /fomc|fed(eral)? funds|interest rate/i };
+    const qm = e => (e.country + ' ' + e.title).toLowerCase().indexOf(q) >= 0 || (ALIAS[q] && ALIAS[q].test(e.title));
+    const found = q ? NEWS_EVENTS.filter(qm).sort((a, b) => b.ts - a.ts).slice(0, 80) : [];
     const dayBlocks = blocks.filter(w => tzParts(w.from, tz).date === NUI.day || tzParts(w.to, tz).date === NUI.day);
     let rows = '', bi = 0;
     dayEvs.forEach(e => {
@@ -2888,7 +2894,7 @@
       const k = evKey(e), t = tzParts(e.ts, tz).time;
       rows += `<button class="nc-ev ${k === NUI.sel ? 'on' : ''} ${e.ts < Date.now() ? 'past' : ''}" data-ev="${esc(k)}"><span class="t">${e.allDay || (/^00:00$/.test(t) && /holiday/i.test(e.impact)) ? 'Jour' : t}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`;
     });
-    if (q) rows = found.length ? `<div class="muted small pad">${found.length} résultat(s) sur toute la période chargée, sans filtre de devise ni d'impact</div>` + found.map(e => { const k = evKey(e), pt = tzParts(e.ts, tz); return `<button class="nc-ev ${k === NUI.sel ? 'on' : ''}" data-ev="${esc(k)}" data-evday="${pt.date}"><span class="t">${pt.date.slice(8)}/${pt.date.slice(5, 7)}<br>${pt.time}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`; }).join('') : '<p class="muted small pad">Aucun événement trouvé dans la période chargée.</p>';
+    if (q) rows = `<div class="pad"><button class="btn sm" id="nc-raw">📋 Copier les données brutes (pour diagnostic)</button></div>` + (found.length ? `<div class="muted small pad">${found.length} résultat(s) sur toute la période chargée, sans filtre de devise ni d'impact</div>` + found.map(e => { const k = evKey(e), pt = tzParts(e.ts, tz); return `<button class="nc-ev ${k === NUI.sel ? 'on' : ''}" data-ev="${esc(k)}" data-evday="${pt.date}"><span class="t">${pt.date.slice(8)}/${pt.date.slice(5, 7)}<br>${pt.time}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`; }).join('') : '<p class="muted small pad">Aucun événement trouvé dans la période chargée.</p>');
     const sel = NUI.sel && NEWS_EVENTS.find(e => evKey(e) === NUI.sel);
     const hist = sel ? ((sel.eventId && HIST[sel.eventId] && HIST[sel.eventId].length) ? HIST[sel.eventId] : NEWS_EVENTS.filter(e => e.country === sel.country && e.title === sel.title).sort((a, b) => b.ts - a.ts)) : [];
     const b = newsBlockCfg();
@@ -2944,6 +2950,11 @@
     $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true, NUI.month).then(() => { if (view === 'news') go(); }); };
     $('#nc-block').onclick = () => { NUI.settings = true; go(); };
     if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
+    if ($('#nc-raw')) $('#nc-raw').onclick = () => {
+      const dayRaw = NEWS_EVENTS.filter(e => ['2026-11-06', '2026-11-13', NUI.day].indexOf(tzParts(e.ts, 'UTC').date) >= 0 && (e.country === 'USD' || e.cc === 'US')).slice(0, 60);
+      const txt = JSON.stringify({ diag: getMeta().diag, q: NUI.q, found: found.slice(0, 30).map(e => e.raw || e), usSample: dayRaw.map(e => e.raw || e), total: NEWS_EVENTS.length }, null, 1);
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast('Données copiées : colle-les dans la conversation avec Claude'), () => { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('Données copiées'); } catch (e) {} ta.remove(); });
+    };
     if (sel && $('#nc-ov')) $('#nc-ov').onchange = e => { const c2 = newsCfg(); c2.impOverride = c2.impOverride || {}; if (e.target.value) c2.impOverride[ovKey(sel)] = e.target.value; else delete c2.impOverride[ovKey(sel)]; applyImpacts(); saveNewsSoon('Impact enregistré'); go(); };
     if ($('#nc-major')) $('#nc-major').onchange = e => { newsCfg().majorHigh = e.target.checked; applyImpacts(); saveNewsSoon(); go(); };
     if (NUI.settings) wireNewsSettings();
