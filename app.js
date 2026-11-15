@@ -801,6 +801,7 @@
       ${skipped ? `<div class="note"><b>${skipped} trade(s) sans entrée</b> (« No Entry », entrée vide ou risque = 0) ont un Return de 0 et sont comptés comme Breakeven, comme dans votre Excel. Ils réduisent mécaniquement le win rate et l'espérance : cochez « Exclure les trades sans entrée » pour mesurer uniquement les trades réellement pris.</div>` : ''}
       ${sm.n < 30 ? `<div class="note">Échantillon de ${sm.n} trade(s) : intervalles de confiance larges. Les sous-groupes de moins de 10 trades (lignes grisées) ne sont pas statistiquement fiables.</div>` : ''}
       ${disciplineHTML(sel, '')}
+      ${consistencyHTML(sel)}
       <h2>Fenêtre glissante : ${Math.min(win.n, +f.window || 20)} derniers trades de la sélection</h2>
       <div class="kpis">${cards(win)}</div>
       <h2>Courbes</h2>
@@ -810,7 +811,7 @@
         <div class="card"><h3>Distribution des R</h3>${histChart(S.histogram(rs, 0.5))}</div>
         <div class="card"><h3>Plan-follow glissant (10 derniers trades)</h3>${lineChart({ series: [{ name: 'Plan-follow', color: 'var(--win)', pts: roll }], yMin: 0, yMax: 100, yFmt: v => v.toFixed(0) + ' %' })}</div>
       </div>
-      <h2>Performance par catégorie</h2>
+      <details class="cat-fold"${catOpen() ? ' open' : ''}><summary><h2>Performance par catégorie</h2><span class="cat-hint"></span></summary>
       <div class="grid2">
         ${groupTable('Instrument', g(t => t.instrument))}${groupTable('Session', g(t => t.session))}
         ${groupTable('Jour', g(t => S.dayName(t.date)))}${groupTable('Direction', g(t => t.direction))}
@@ -819,7 +820,7 @@
         ${groupTable('Score du setup (/4)', g(t => t._score === null ? '' : t._score + '/4'))}${groupTable('Plan-follow', g(t => t.planFollow))}
         ${groupTable('FOMO / impulsion', g(t => t.fomo))}${groupTable('Gestion du trade', g(t => normMgmt(t.management)))}
         ${groupTable('Setup', g(t => t.setup))}${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Type de sortie', g(t => t.exitType))}
-      </div>`;
+      </div></details>`;
     const re = () => { f.from = $('#d-from').value; f.to = $('#d-to').value; f.instrument = $('#d-inst').value; f.session = $('#d-sess').value; f.window = $('#d-win').value; f.excl = $('#d-excl').checked; renderDashboard(); };
     ['#d-from', '#d-to', '#d-inst', '#d-sess', '#d-win', '#d-excl'].forEach(s => $(s).addEventListener('change', re));
     $('#d-reset').onclick = () => { ui.dash = { from: '', to: '', instrument: '', session: '', window: 20, excl: false }; renderDashboard(); };
@@ -3403,6 +3404,49 @@
     };
   }
 
+
+  /* ================= V6 : score de consistance + catégories repliables ================= */
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  function consistency(ts) {
+    const T = ts.filter(takenT).filter(t => S.filled(t.ret) && t.date);
+    if (T.length < 5) return null;
+    const wk = {}, dy = {}, dn = {};
+    T.forEach(t => { const w = weekStartISO(t.date), r = +t.ret; wk[w] = (wk[w] || 0) + r; dy[t.date] = (dy[t.date] || 0) + r; dn[t.date] = (dn[t.date] || 0) + 1; });
+    const wv = Object.values(wk), dv = Object.values(dy), dc = Object.values(dn);
+    const wPos = wv.filter(x => x > 0).length / wv.length;
+    const gains = dv.filter(x => x > 0).reduce((a, b) => a + b, 0), best = Math.max(0, ...dv), share = gains > 0 ? best / gains : 1;
+    const pf = T.filter(t => t.planFollow); let disc, discLbl, discTxt;
+    if (pf.length >= 5) { const y = pf.filter(t => t.planFollow === 'Yes').length; disc = y / pf.length; discLbl = 'Respect du plan'; discTxt = `${y}/${pf.length} trades avec « Plan suivi » = Yes`; }
+    else { const gr = T.filter(t => t._grade); const a = gr.filter(t => t._grade === 'A+' || t._grade === 'A').length; disc = gr.length ? a / gr.length : null; discLbl = 'Qualité des setups'; discTxt = `${a}/${gr.length} setups A ou A+`; }
+    const mx = getGuardrails().maxTrades || 3, okDays = dc.filter(n => n <= mx).length;
+    const comps = [
+      { k: 'Semaines positives', w: 30, v: wPos, txt: `${wv.filter(x => x > 0).length}/${wv.length} semaines avec un net en R positif` },
+      { k: 'Gains bien répartis', w: 20, v: clamp01((0.8 - share) / 0.6), txt: gains > 0 ? `Le meilleur jour pèse ${pct(share)} des gains (${sgn(best)} R sur ${num(gains)} R). 100 si ≤ 20 %, 0 si ≥ 80 %.` : 'Aucun jour gagnant.' },
+      { k: discLbl, w: 30, v: disc, txt: discTxt },
+      { k: 'Nombre de trades maîtrisé', w: 20, v: okDays / dc.length, txt: `${okDays}/${dc.length} jours à ${mx} trade${mx > 1 ? 's' : ''} ou moins (limite Guardrails)` },
+    ].filter(c => c.v !== null && c.v !== undefined && !isNaN(c.v));
+    const W = comps.reduce((a, c) => a + c.w, 0), score = Math.round(comps.reduce((a, c) => a + c.w * c.v, 0) / W * 100);
+    const label = score >= 80 ? 'Très régulier' : score >= 65 ? 'Régulier' : score >= 50 ? 'Irrégulier' : 'Très irrégulier';
+    return { score, label, comps, n: T.length, weeks: wv.length, days: dc.length };
+  }
+  function consistencyHTML(ts) {
+    const c = consistency(ts);
+    if (!c) return `<h2>Score de consistance</h2><div class="note">Il faut au moins 5 trades dans la sélection pour calculer le score.</div>`;
+    const col = c.score >= 80 ? 'var(--win)' : c.score >= 65 ? '#3ba0ff' : c.score >= 50 ? 'var(--be)' : 'var(--loss)';
+    const weakest = c.comps.slice().sort((a, b) => a.v - b.v)[0];
+    return `<h2>Score de consistance</h2>
+      <div class="card cons">
+        <div class="cons-ring" style="--p:${c.score};--c:${col}" role="img" aria-label="Score de consistance ${c.score} sur 100"><div><b>${c.score}</b><span>/100</span></div></div>
+        <div class="cons-main"><div class="cons-lbl" style="color:${col}">${c.label}</div>
+          <div class="muted small">${c.n} trades · ${c.days} jours tradés · ${c.weeks} semaine(s) dans la sélection${c.weeks < 4 ? ' · moins de 4 semaines : score peu fiable' : ''}</div>
+          <div class="cons-comps">${c.comps.map(x => `<div class="cons-c"><div class="cons-ch"><span>${esc(x.k)} <span class="muted small">(${x.w} %)</span></span><b>${Math.round(x.v * 100)}</b></div><div class="cons-bar"><span style="width:${Math.round(x.v * 100)}%;background:${x.v >= .8 ? 'var(--win)' : x.v >= .5 ? 'var(--be)' : 'var(--loss)'}"></span></div><div class="muted small">${esc(x.txt)}</div></div>`).join('')}</div>
+          <p class="small cons-tip">👉 Point le plus faible : <b>${esc(weakest.k)}</b> (${Math.round(weakest.v * 100)}/100).</p>
+        </div>
+      </div>`;
+  }
+  const CAT_KEY = 'dash_cat_open_v1';
+  const catOpen = () => { try { return localStorage.getItem(CAT_KEY) !== '0'; } catch (e) { return true; } };
+  document.addEventListener('toggle', e => { const t = e.target; if (t && t.classList && t.classList.contains('cat-fold')) { try { localStorage.setItem(CAT_KEY, t.open ? '1' : '0'); } catch (x) {} } }, true);
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
