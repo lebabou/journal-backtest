@@ -2689,7 +2689,7 @@
   const IMPACTS = [['High', 'Fort', 'hi'], ['Medium', 'Moyen', 'me'], ['Low', 'Faible', 'lo'], ['Holiday', 'Férié', 'ho']];
   const impCls = i => (IMPACTS.find(x => x[0].toLowerCase() === String(i || '').toLowerCase()) || IMPACTS[2])[2];
   const TZ_LIST = ['Indian/Antananarivo', 'Africa/Nairobi', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Abidjan', 'UTC', 'Europe/London', 'Europe/Paris', 'America/New_York', 'Asia/Dubai', 'Asia/Tokyo', 'Australia/Sydney'];
-  const NEWS_ARCH = 'news_archive_v1', NEWS_META = 'news_fetch_v1';
+  const NEWS_ARCH = 'news_archive_v1', NEWS_META = 'news_fetch_v2';
   const NUI = { month: '', day: '', sel: '', q: '', settings: false };
   let NEWS_EVENTS = [], NEWS_STATUS = '', NEWS_LOADING = null, _nsSave = null;
   function newsCfg() {
@@ -2774,16 +2774,31 @@
     const from = addDaysISO(ym + '-01', -7), to = addDaysISO(addMonth(ym, 1) + '-01', 7);
     const span = l => { const v = l.filter(e => !isNaN(e.ts)).map(e => e.ts); return v.length ? [new Date(Math.min(...v)).toISOString().slice(0, 10), new Date(Math.max(...v)).toISOString().slice(0, 10)] : null; };
     const diag = { bq: null, ff: null };
+    // biquote.io plafonne chaque réponse (en partant de la date de début) : lecture par pages,
+    // on redemande à partir du dernier jour reçu jusqu'à atteindre la date de fin.
+    const bqRange = async (extra, info) => {
+      const out = [], seen = new Set(); let curD = from, guard = 0, req = 0;
+      while (curD <= to && guard++ < 40) {
+        const l = asList(await fetchJSON(`https://biquote.io/api/calendar?from=${curD}&to=${to}&limit=1000${extra}`)); req++;
+        let added = 0;
+        l.forEach(e => { const id = e.id || (e.eventId + '|' + e.time + '|' + e.name); if (!seen.has(id)) { seen.add(id); out.push(e); added++; } });
+        if (!l.length || !added) break;
+        const maxDay = l.map(e => String(e.time || e.date || '').slice(0, 10)).filter(Boolean).sort().pop();
+        if (!maxDay || maxDay >= to) break;
+        curD = maxDay > curD ? maxDay : addDaysISO(curD, 1);
+      }
+      const list = out.map(normBQ); info.n = list.length; info.req = req; info.span = span(list); return list;
+    };
     const bq = (async () => {
-      let list = asList(await fetchJSON(`https://biquote.io/api/calendar?from=${from}&to=${to}`)).map(normBQ);
-      const sp = span(list);
-      // en plus : semaine par semaine, limité aux pays de tes devises (évite toute troncature côté serveur)
       const nc0 = newsCfg(), ccs = [...new Set(nc0.currencies.concat(newsBlockCfg().currencies).flatMap(c => CCY2CC[c] || []))].join(',');
-      const chunks = []; for (let a = from; a < to; a = addDaysISO(a, 7)) chunks.push([a, addDaysISO(a, 7) < to ? addDaysISO(a, 7) : to]);
-      const more = await Promise.all(chunks.map(([a, z]) => fetchJSON(`https://biquote.io/api/calendar?from=${a}&to=${z}${ccs ? '&countries=' + ccs : ''}`).then(j => asList(j).map(normBQ)).catch(() => [])));
-      more.forEach(m => { list = list.concat(m); });
-      diag.bqMain = sp ? sp.join('→') : 'vide';
-      diag.bq = { n: list.length, span: span(list) }; return list;
+      diag.bqHigh = {}; diag.bqCcy = {};
+      const parts = await Promise.all([
+        bqRange('&importance=high', diag.bqHigh).catch(() => []),                    // toutes les news fortes, tous pays
+        bqRange(ccs ? '&countries=' + ccs : '', diag.bqCcy).catch(() => []),          // tout pour les pays de tes devises
+      ]);
+      const list = parts[0].concat(parts[1]);
+      if (!list.length) throw new Error('vide');
+      diag.bq = { n: list.length, span: span(list), req: (diag.bqHigh.req || 0) + (diag.bqCcy.req || 0) }; return list;
     })().catch(() => { diag.bq = { err: true }; return null; });
     const ff = ym === cur ? fetchJSON('https://nfs.faireconomy.media/ff_calendar_thisweek.json').then(j => { const l = asList(j).map(normEv); diag.ff = { n: l.length, span: span(l) }; return l; }).catch(() => { diag.ff = { err: true }; return null; }) : Promise.resolve(null);
     NEWS_LOADING = Promise.all([bq, ff]).then(([a, b]) => {
@@ -2803,7 +2818,8 @@
     let route = ''; try { route = localStorage.getItem(NEWS_ROUTE_KEY) || ''; } catch (e) {}
     const cnt = {}; NEWS_EVENTS.forEach(e => { cnt[e.impact] = (cnt[e.impact] || 0) + 1; });
     const unk = [...new Set(NEWS_EVENTS.filter(e => e.src === 'bq' && e.rawImp && !IMP_MAP[e.rawImp.toLowerCase()]).map(e => e.rawImp))];
-    return `Diagnostic : biquote.io ${f(d.bq)} · ForexFactory ${f(d.ff)}${route ? ' · voie : ' + route : ''} · impacts : fort ${cnt.High || 0}, moyen ${cnt.Medium || 0}, faible ${cnt.Low || 0}, férié ${cnt.Holiday || 0}${unk.length ? ' · valeurs d\'impact inconnues : ' + unk.join(', ') : ''}`;
+    const fx = x => x && x.n !== undefined ? `${x.n} (${x.req || 0} req.${x.span ? ', ' + x.span[0].slice(8) + '/' + x.span[0].slice(5, 7) + ' → ' + x.span[1].slice(8) + '/' + x.span[1].slice(5, 7) : ''})` : '–';
+    return `Diagnostic : biquote.io ${f(d.bq)} [fortes ${fx(d.bqHigh)} · tes devises ${fx(d.bqCcy)}] · ForexFactory ${f(d.ff)}${route ? ' · voie : ' + route : ''} · impacts : fort ${cnt.High || 0}, moyen ${cnt.Medium || 0}, faible ${cnt.Low || 0}, férié ${cnt.Holiday || 0}${unk.length ? ' · valeurs d\'impact inconnues : ' + unk.join(', ') : ''}`;
   }
   function loadHistory(e) {
     if (!e.eventId || HIST[e.eventId]) return Promise.resolve(HIST[e.eventId] || null);
@@ -2952,7 +2968,7 @@
     if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
     if ($('#nc-raw')) $('#nc-raw').onclick = () => {
       const dayRaw = NEWS_EVENTS.filter(e => ['2026-11-06', '2026-11-13', NUI.day].indexOf(tzParts(e.ts, 'UTC').date) >= 0 && (e.country === 'USD' || e.cc === 'US')).slice(0, 60);
-      const txt = JSON.stringify({ diag: getMeta().diag, q: NUI.q, found: found.slice(0, 30).map(e => e.raw || e), usSample: dayRaw.map(e => e.raw || e), total: NEWS_EVENTS.length }, null, 1);
+      const txt = JSON.stringify({ diag: getMeta().diag, q: NUI.q, found: found.filter(e => e.country === 'USD').slice(0, 40).map(e => e.raw || e), usSample: dayRaw.map(e => e.raw || e), total: NEWS_EVENTS.length }, null, 1);
       (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast('Données copiées : colle-les dans la conversation avec Claude'), () => { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('Données copiées'); } catch (e) {} ta.remove(); });
     };
     if (sel && $('#nc-ov')) $('#nc-ov').onchange = e => { const c2 = newsCfg(); c2.impOverride = c2.impOverride || {}; if (e.target.value) c2.impOverride[ovKey(sel)] = e.target.value; else delete c2.impOverride[ovKey(sel)]; applyImpacts(); saveNewsSoon('Impact enregistré'); go(); };
