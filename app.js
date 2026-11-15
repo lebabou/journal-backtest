@@ -1604,8 +1604,8 @@
         '<label>Interval <select id="tv-intv" style="font-size:14px;padding:4px 8px">' + intvOpts + '</select></label>' +
         '<label>Theme <select id="tv-theme" style="font-size:14px;padding:4px 8px"><option value="dark"' + (theme === 'dark' ? ' selected' : '') + '>Dark</option><option value="light"' + (theme === 'light' ? ' selected' : '') + '>Light</option></select></label>' +
         '<button class="btn primary" id="tv-apply">Apply</button>' +
-        '<a href="https://www.tradingview.com/chart/" target="_blank" rel="noopener" class="btn">\ud83d\udd17 Open TradingView (full account) \u2197</a>' +
         '</div>' +
+        '<div id="tv-layouts" class="tv-layouts"></div>' +
         '<div id="tv-chart-wrap" class="cal-embed" style="height:calc(100vh - 200px);min-height:500px"></div>' +
         '</div>';
 
@@ -1613,7 +1613,8 @@
         var s = tc.querySelector('#tv-sym').value;
         var i = tc.querySelector('#tv-intv').value;
         var t = tc.querySelector('#tv-theme').value;
-        DB.tradingView = { symbol: s, interval: i, theme: t };
+        DB.tradingView = Object.assign(DB.tradingView || {}, { symbol: s, interval: i, theme: t });
+        renderTvLayouts(tc);
         var url = 'https://s.tradingview.com/widgetembed/?hideideas=1&overrides={}&enabled_features=[]&disabled_features=[]' +
           '&symbol=' + encodeURIComponent(s) +
           '&interval=' + i +
@@ -1626,12 +1627,61 @@
       }
 
       tc.querySelector('#tv-apply').onclick = buildChart;
+      tc.querySelector('#tv-sym').onchange = () => renderTvLayouts(tc);
       buildChart();
       _tradingReady = true;
     }
 
+    renderTvLayouts(tc);
     tc.hidden = false;
     $('#main').hidden = true;
+  }
+
+  /* ---- Mes graphiques TradingView (layouts du compte) : ouverts dans TradingView, connectés au compte ---- */
+  const DEFAULT_LAYOUT = { name: 'Mon graphique', url: 'https://fr.tradingview.com/chart/dj66K3s2/' };
+  function tvLayouts() {
+    DB.tradingView = DB.tradingView || {};
+    if (!Array.isArray(DB.tradingView.layouts)) DB.tradingView.layouts = [Object.assign({}, DEFAULT_LAYOUT)];
+    return DB.tradingView.layouts;
+  }
+  function layoutUrl(l, sym) {
+    const base = String(l.url || '').split('#')[0].split('?')[0].replace(/\/?$/, '/');
+    return sym ? base + '?symbol=' + encodeURIComponent(sym) : base;
+  }
+  function renderTvLayouts(tc) {
+    const box = tc.querySelector('#tv-layouts'); if (!box) return;
+    const ls = tvLayouts(), sym = (tc.querySelector('#tv-sym') || {}).value || (DB.tradingView.symbol || 'FX:EURUSD');
+    const wide = window.matchMedia && window.matchMedia('(min-width: 1000px)').matches;
+    box.innerHTML = `<div class="tv-lhead"><b>Mes graphiques TradingView</b> <span class="muted small">Ouverts dans TradingView avec ton compte (layouts, indicateurs, dessins) · symbole : ${esc(sym.replace(/^[A-Z]+:/, ''))}</span></div>
+      <div class="tv-lrow">${ls.map((l, i) => `<div class="tv-lcard">
+        <a class="btn primary" href="${esc(layoutUrl(l, sym))}" target="_blank" rel="noopener" data-tvopen="${i}">📈 ${esc(l.name || 'Graphique')} ↗</a>
+        ${wide ? `<button class="btn sm" data-tvside="${i}" title="Ouvre une fenêtre à droite de l'écran pour garder le journal visible">🪟 Fenêtre à côté</button>` : ''}
+        <button class="btn sm" data-tvedit="${i}" aria-label="Modifier">✎</button></div>`).join('')}
+        <button class="btn sm" id="tv-add">+ Ajouter un graphique</button></div>
+      <div id="tv-form"></div>
+      <p class="muted small">TradingView n'autorise pas l'affichage de ton graphique connecté à l'intérieur d'un autre site : il s'ouvre dans l'application TradingView (téléphone) ou dans un nouvel onglet (PC). Le graphique ci-dessous est la version intégrable, sans ton compte.</p>`;
+    box.querySelectorAll('[data-tvside]').forEach(b => b.onclick = () => {
+      const l = ls[+b.dataset.tvside], w = Math.round(screen.availWidth / 2), h = screen.availHeight;
+      const win = window.open(layoutUrl(l, sym), 'tv_side', `width=${w},height=${h},left=${screen.availWidth - w},top=0`);
+      if (!win) toast('Fenêtre bloquée par le navigateur : autorise les pop-ups pour ce site.');
+    });
+    const form = (i) => {
+      const l = i === null ? { name: '', url: '' } : ls[i];
+      box.querySelector('#tv-form').innerHTML = `<div class="tv-edit card"><label>Nom<input id="tvf-name" value="${esc(l.name)}" placeholder="ex. EURUSD – analyse HTF"></label>
+        <label>Lien du graphique<input id="tvf-url" value="${esc(l.url)}" placeholder="https://fr.tradingview.com/chart/xxxxxxx/"></label>
+        <div class="actions">${i !== null ? '<button class="btn" id="tvf-del">Supprimer</button>' : ''}<button class="btn" id="tvf-cancel">Annuler</button><button class="btn primary" id="tvf-save">Enregistrer</button></div></div>`;
+      box.querySelector('#tvf-cancel').onclick = () => { box.querySelector('#tv-form').innerHTML = ''; };
+      if (i !== null) box.querySelector('#tvf-del').onclick = async () => { if (!confirm('Supprimer ce graphique de la liste ?')) return; ls.splice(i, 1); await save('Graphique supprimé'); renderTvLayouts(tc); };
+      box.querySelector('#tvf-save').onclick = async () => {
+        const name = box.querySelector('#tvf-name').value.trim(), url = box.querySelector('#tvf-url').value.trim();
+        if (!/^https:\/\/([a-z]{2,3}\.)?(www\.)?tradingview\.com\/chart\//i.test(url)) return alert('Colle le lien d\u2019un graphique TradingView (il commence par https://…tradingview.com/chart/).');
+        const item = { name: name || 'Graphique', url: url };
+        if (i === null) ls.push(item); else ls[i] = item;
+        await save('Graphique enregistré'); renderTvLayouts(tc);
+      };
+    };
+    box.querySelectorAll('[data-tvedit]').forEach(b => b.onclick = () => form(+b.dataset.tvedit));
+    box.querySelector('#tv-add').onclick = () => form(null);
   }
 
   function hideTrading() {
