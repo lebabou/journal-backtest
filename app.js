@@ -1061,7 +1061,7 @@
 
   /* ---------- REVUES (weekly / monthly / quarterly / yearly) ---------- */
   const QUESTIONS = {
-    weekly: [['q1', 'Qu\'est-ce qui a bien marché cette semaine, et pourquoi ?'], ['q2', 'Quelles erreurs ou points faibles, et quel plan de prévention ?'], ['q3', 'Quel schéma voyez-vous dans vos meilleurs et pires trades ?'], ['q4', 'Quel est votre unique priorité pour la semaine prochaine ?'], ['best', 'Meilleur trade (pourquoi il était bon)'], ['worst', 'Pire trade (cause)'], ['missed', 'Setups valides manqués', 'number'], ['chart', 'Graphique à étudier']],
+    weekly: [['q1', 'Qu\'est-ce qui a bien marché cette semaine, et pourquoi ?'], ['q2', 'Quelles erreurs ou points faibles, et quel plan de prévention ?'], ['q3', 'Quel schéma voyez-vous dans vos meilleurs et pires trades ?'], ['q4', 'Quel est votre unique priorité pour la semaine prochaine ?'], ['best', 'Meilleur trade (pourquoi il était bon)'], ['worst', 'Pire trade (cause)'], ['missed', 'Setups valides manqués', 'number'], ['missedLinks', 'Captures TradingView des setups manqués', 'links'], ['chart', 'Graphique à étudier']],
     monthly: [['q1', 'Quelle est la leçon n°1 du mois ?'], ['q2', 'Quelle barrière mentale est revenue le plus, et quel plan pour la corriger ?'], ['q3', 'De quoi êtes-vous le plus fier (process ou résultat) ?'], ['q4', 'Priorité unique pour le mois prochain ?'], ['best', 'Meilleur jour (qu\'avez-vous bien fait ?)'], ['worst', 'Pire jour (qu\'est-ce qui a mal tourné ?)']],
     quarterly: [['q1', 'Plus grand progrès d\'exécution ce trimestre'], ['q2', 'Plus grand progrès de discipline ce trimestre'], ['q3', 'Schéma d\'erreur à éliminer le trimestre prochain'], ['q4', 'Quelle a été votre plus grande avancée ?'], ['q5', 'Où avez-vous le plus dérapé, et quelle correction ?'], ['q6', 'Moment le plus dur et ce qu\'il vous a appris'], ['q7', 'Si vous ne maîtrisez qu\'UNE chose le trimestre prochain, laquelle ?'], ['best', 'Meilleur setup (nom + pourquoi)'], ['worst', 'Pire setup (nom + pourquoi)'], ['mistakes', '1–2 erreurs qui ont coûté le plus (en R)']],
     yearly: [['q1', 'Leçons les plus puissantes de l\'année'], ['q2', 'Habitudes, système ou changements mentaux qui ont le plus contribué à votre progression'], ['q3', 'Revers ou schémas répétés, et ce que vous changerez'], ['q4', 'Moment de trading dont vous êtes le plus fier'], ['q5', 'Partie de la stratégie à développer ou affiner'], ['q6', 'Qu\'est-ce qui ferait de l\'an prochain votre meilleure année ?'], ['best', 'Meilleur mois (pourquoi ça a marché)'], ['worst', 'Mois le plus difficile (ce qui a lâché)'], ['mistakes', 'Schéma d\'erreur le plus coûteux']],
@@ -1095,16 +1095,17 @@
       ${reviewSynthesis(r.type, p)}
       <h2>Réflexion</h2>
       ${prefillNote(r.type, p, rv)}
-      <div class="card">${QUESTIONS[r.type].map(([k, label, kind]) => `<div class="qa"><label for="q-${k}">${esc(label)}</label>${kind === 'number' ? `<input type="number" id="q-${k}" value="${esc(rv.answers[k] ?? pre[k] ?? '')}">` : `<textarea id="q-${k}">${esc(rv.answers[k] ?? pre[k] ?? '')}</textarea>`}</div>`).join('')}
+      <div class="card">${QUESTIONS[r.type].map(([k, label, kind]) => kind === 'links' ? linksField(k, label, rv.answers[k]) : `<div class="qa"><label for="q-${k}">${esc(label)}</label>${kind === 'number' ? `<input type="number" id="q-${k}" value="${esc(rv.answers[k] ?? pre[k] ?? '')}">` : `<textarea id="q-${k}">${esc(rv.answers[k] ?? pre[k] ?? '')}</textarea>`}</div>`).join('')}
         <div class="actions"><button class="btn primary" id="r-save">Enregistrer la revue</button></div></div>
       ${ts.length ? `<h2>Trades de la période</h2><div class="twrap"><table><thead><tr><th class="num">#</th><th>Date</th><th>Instrument</th><th>Dir.</th><th class="num">R</th><th>Grade</th><th>Plan</th></tr></thead><tbody>${ts.map(t => `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td class="num ${cls(t.ret)}">${sgn(t.ret)}</td><td>${esc(t._grade)}</td><td>${esc(t.planFollow)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { const last = DB.trades.map(t => t.date).sort().pop() || p.start; r.type = b.dataset.t; r.start = S.period(r.type, p.start <= last && last <= p.end ? last : p.start).start; renderReviews(); });
     $('#r-prev').onclick = () => { r.start = S.shiftPeriod(r.type, p.start, -1).start; renderReviews(); };
     $('#r-next').onclick = () => { r.start = S.shiftPeriod(r.type, p.start, 1).start; renderReviews(); };
     document.querySelectorAll('tr.click').forEach(row => row.onclick = () => openTrade(+row.dataset.n));
+    QUESTIONS[r.type].forEach(([k, , kind]) => { if (kind === 'links') linksWire(k); });
     $('#r-save').onclick = async () => {
       const answers = {};
-      QUESTIONS[r.type].forEach(([k, , kind]) => { const v = $('#q-' + k).value; if (v !== '') answers[k] = kind === 'number' ? +v : v; });
+      QUESTIONS[r.type].forEach(([k, , kind]) => { if (kind === 'links') { const l = linksCollect(k); if (l.length) answers[k] = l; return; } const v = $('#q-' + k).value; if (v !== '') answers[k] = kind === 'number' ? +v : v; });
       const i = DB.reviews.findIndex(x => x.id === id), rec = { id, type: r.type, start: p.start, end: p.end, answers, savedAt: todayISO() };
       if (i >= 0) DB.reviews[i] = rec; else DB.reviews.push(rec);
       await save('Revue enregistrée');
@@ -2695,33 +2696,113 @@
 
   /* ---- revues : synthèse des sous-périodes + pré-remplissage mensuel ---- */
   const SUB_TYPE = { monthly: 'weekly', quarterly: 'monthly', yearly: 'quarterly' };
+  const SUB_CHAIN = { monthly: ['weekly'], quarterly: ['monthly', 'weekly'], yearly: ['quarterly', 'monthly', 'weekly'] };
+  const hasAns = r => Object.keys(r.answers || {}).length > 0;
+  function subOf(type, sub, p) { return (DB.reviews || []).filter(r => r.type === sub && r.start >= p.start && r.start <= p.end && hasAns(r)).sort((a, b) => a.start.localeCompare(b.start)); }
+  // sous-revues utilisées : type « naturel » (mois pour un trimestre…), sinon le niveau en dessous
   function subReviews(type, p) {
-    const sub = SUB_TYPE[type]; if (!sub) return [];
-    return (DB.reviews || []).filter(r => r.type === sub && r.start >= p.start && r.start <= p.end && Object.keys(r.answers || {}).length).sort((a, b) => a.start.localeCompare(b.start));
+    for (const sub of (SUB_CHAIN[type] || [])) { const a = subOf(type, sub, p); if (a.length) return a; }
+    return [];
+  }
+  const subTypeUsed = (type, p) => { const s = subReviews(type, p); return s.length ? s[0].type : SUB_TYPE[type]; };
+  function fmtAnswer(v) {
+    if (Array.isArray(v)) return v.map(x => typeof x === 'string' ? x : (x.url || '') + (x.note ? ' — ' + x.note : '')).join('\n');
+    return String(v);
   }
   function reviewSynthesis(type, p) {
-    const subs = subReviews(type, p); if (!SUB_TYPE[type]) return '';
-    const sub = SUB_TYPE[type], qs = QUESTIONS[sub];
-    if (!subs.length) return `<h2>Synthèse des revues (${TYPES[sub].toLowerCase()})</h2><div class="note">Aucune revue ${TYPES[sub].toLowerCase()} enregistrée sur cette période.</div>`;
-    return `<h2>Synthèse des revues (${TYPES[sub].toLowerCase()}, ${subs.length})</h2><div class="card syn">${subs.map(r => `<details${subs.length <= 5 ? ' open' : ''}><summary><b>${esc(periodLabel(sub, r))}</b></summary><dl>${qs.filter(([k]) => isSet(r.answers[k])).map(([k, l]) => `<dt>${esc(l)}</dt><dd>${esc(r.answers[k])}</dd>`).join('')}</dl></details>`).join('')}</div>`;
+    if (!SUB_TYPE[type]) return '';
+    const subs = subReviews(type, p), sub = subTypeUsed(type, p), qs = QUESTIONS[sub];
+    if (!subs.length) return `<h2>Synthèse des revues</h2><div class="note">Aucune revue (${SUB_CHAIN[type].map(x => TYPES[x].toLowerCase()).join(', ')}) enregistrée sur cette période.</div>`;
+    const links = subs.flatMap(r => (r.answers.missedLinks || []));
+    return `<h2>Synthèse des revues (${TYPES[sub].toLowerCase()}, ${subs.length})</h2><div class="card syn">${subs.map(r => `<details${subs.length <= 5 ? ' open' : ''}><summary><b>${esc(periodLabel(sub, r))}</b></summary><dl>${qs.filter(([k]) => isSet(r.answers[k]) && !(Array.isArray(r.answers[k]) && !r.answers[k].length)).map(([k, l, kind]) => `<dt>${esc(l)}</dt><dd>${kind === 'links' ? linksView(r.answers[k]) : esc(fmtAnswer(r.answers[k]))}</dd>`).join('')}</dl></details>`).join('')}
+      ${links.length ? `<details open><summary><b>📷 Setups manqués de la période (${links.length})</b></summary>${linksView(links)}</details>` : ''}</div>`;
   }
+  /* --- statistiques d'une période, pour pré-remplir --- */
+  function periodTrades(p) { return enriched().filter(t => t.date >= p.start && t.date <= p.end && S.filled(t.ret)).filter(takenT); }
+  function setupRank(ts) {
+    const m = {}; ts.forEach(t => { if (t.setup) (m[t.setup] = m[t.setup] || []).push(+t.ret); });
+    return Object.entries(m).filter(([, a]) => a.length >= 2).map(([k, a]) => ({ k, net: a.reduce((s, v) => s + v, 0), n: a.length, wr: a.filter(x => x > 0).length / a.length })).sort((a, b) => b.net - a.net);
+  }
+  function costlyErrors(ts) {
+    const clean = ts.filter(isClean), e0 = meanOf(rets(clean)); if (e0 === null) return [];
+    const m = {}; ts.forEach(t => (t.mistakeTags || []).forEach(g => { (m[g] = m[g] || []).push(+t.ret); }));
+    return Object.entries(m).map(([k, a]) => ({ k, n: a.length, cost: (e0 - meanOf(a)) * a.length })).filter(x => x.cost > 0).sort((a, b) => b.cost - a.cost);
+  }
+  function kpiLine(ts) { const r = rets(ts); if (!r.length) return null; const pf = ts.filter(t => t.planFollow); return { n: r.length, e: meanOf(r), wr: r.filter(x => x > 0).length / r.length, net: r.reduce((a, b) => a + b, 0), plan: pf.length ? pf.filter(t => t.planFollow === 'Yes').length / pf.length : null, fomo: ts.filter(t => t.fomo === 'Yes').length, kzOut: ts.filter(t => t.killzone === 'No').length }; }
+  function prevPeriod(type, p) { try { return S.shiftPeriod(type, p.start, -1); } catch (e) { return null; } }
   function reviewPrefill(type, p, rv) {
-    if (type !== 'monthly' || Object.keys(rv.answers || {}).length) return {};
-    const subs = subReviews(type, p), out = {};
-    const join = k => subs.filter(r => isSet(r.answers[k])).map(r => `• (sem. ${r.start.slice(8)}/${r.start.slice(5, 7)}) ${r.answers[k]}`).join('\n');
-    if (subs.length) {
-      out.q1 = join('q3'); out.q2 = join('q2'); out.q3 = join('q1');
-      const pr = join('q4'); if (pr) out.q4 = 'Priorités des semaines :\n' + pr;
+    if (!SUB_TYPE[type] || hasAns(rv)) return {};
+    const subs = subReviews(type, p), sub = subTypeUsed(type, p), out = {};
+    const tag = r => sub === 'weekly' ? `sem. ${r.start.slice(8)}/${r.start.slice(5, 7)}` : periodLabel(sub, r);
+    const join = (...keys) => subs.flatMap(r => keys.filter(k => isSet(r.answers[k]) && typeof r.answers[k] === 'string').map(k => `• (${tag(r)}) ${r.answers[k]}`)).join('\n');
+    const ts = periodTrades(p), cur = kpiLine(ts), pp = prevPeriod(type, p), prev = pp ? kpiLine(periodTrades(pp)) : null;
+    const evo = (a, b, f) => b === null || b === undefined ? f(a) : `${f(b)} → ${f(a)}`;
+    const rk = setupRank(ts), errs = costlyErrors(ts);
+    const bestSetup = rk.length && rk[0].net > 0 ? `${rk[0].k} : ${sgn(rk[0].net)} R sur ${rk[0].n} trades (win rate ${pct(rk[0].wr)})` : '';
+    const worstSetup = rk.length > 1 && rk[rk.length - 1].net < 0 ? `${rk[rk.length - 1].k} : ${sgn(rk[rk.length - 1].net)} R sur ${rk[rk.length - 1].n} trades (win rate ${pct(rk[rk.length - 1].wr)})` : '';
+    const errTxt = errs.slice(0, 2).map(x => `${x.k} : ${x.n} trade(s), coût estimé ${num(x.cost)} R`).join('\n');
+    if (type === 'monthly') {
+      if (subs.length) { out.q1 = join('q3'); out.q2 = join('q2'); out.q3 = join('q1'); const pr = join('q4'); if (pr) out.q4 = 'Priorités des semaines :\n' + pr; }
+      const days = {}; ts.forEach(t => { (days[t.date] = days[t.date] || []).push(+t.ret); });
+      const dl = Object.entries(days).map(([d, a]) => [d, a.reduce((s, v) => s + v, 0), a.length]).sort((a, b) => b[1] - a[1]);
+      if (dl.length) { const b = dl[0], w = dl[dl.length - 1]; out.best = `${b[0]} : ${sgn(b[1])} R (${b[2]} trade${b[2] > 1 ? 's' : ''})`; if (dl.length > 1) out.worst = `${w[0]} : ${sgn(w[1])} R (${w[2]} trade${w[2] > 1 ? 's' : ''})`; }
     }
-    const days = {}; DB.trades.filter(t => t.date >= p.start && t.date <= p.end && S.filled(t.ret)).forEach(t => { (days[t.date] = days[t.date] || []).push(+t.ret); });
-    const dl = Object.entries(days).map(([d, a]) => [d, a.reduce((s, v) => s + v, 0), a.length]).sort((a, b) => b[1] - a[1]);
-    if (dl.length) { const b = dl[0], w = dl[dl.length - 1]; out.best = `${b[0]} : ${sgn(b[1])} R (${b[2]} trade${b[2] > 1 ? 's' : ''})`; if (dl.length > 1) out.worst = `${w[0]} : ${sgn(w[1])} R (${w[2]} trade${w[2] > 1 ? 's' : ''})`; }
+    if (type === 'quarterly') {
+      if (cur) {
+        out.q1 = `Chiffres${prev ? ' (trimestre précédent → ce trimestre)' : ' du trimestre'} : espérance ${evo(cur.e, prev && prev.e, v => sgn(v) + ' R')}, win rate ${evo(cur.wr, prev && prev.wr, pct)}, net ${evo(cur.net, prev && prev.net, v => sgn(v) + ' R')}.`;
+        out.q2 = `Plan suivi ${evo(cur.plan, prev && prev.plan, v => v === null ? '–' : pct(v))}, trades FOMO ${evo(cur.fomo, prev && prev.fomo, String)}, trades hors killzone ${evo(cur.kzOut, prev && prev.kzOut, String)}.`;
+      }
+      const a = join(sub === 'monthly' ? 'q2' : 'q2'); if (a) out.q3 = a;
+      const b = join(sub === 'monthly' ? 'q3' : 'q1'); if (b) out.q4 = b;
+      if (errTxt) out.q5 = 'Erreurs les plus coûteuses :\n' + errTxt;
+      const d = join(sub === 'monthly' ? 'q1' : 'q3'); if (d) out.q6 = d;
+      const e = join('q4'); if (e) out.q7 = 'Priorités notées dans tes revues :\n' + e;
+      if (bestSetup) out.best = bestSetup; if (worstSetup) out.worst = worstSetup; if (errTxt) out.mistakes = errTxt;
+    }
+    if (type === 'yearly') {
+      const MAP = { quarterly: [['q6'], ['q2', 'q4'], ['q3', 'q5'], ['q4'], ['q7']], monthly: [['q1'], ['q3'], ['q2'], ['q3'], ['q4']], weekly: [['q3'], ['q1'], ['q2'], ['best'], ['q4']] }[sub] || [];
+      ['q1', 'q2', 'q3', 'q4', 'q5'].forEach((q, i) => { const v = MAP[i] ? join(...MAP[i]) : ''; if (v) out[q] = v; });
+      if (cur) out.q6 = `Point de départ chiffré : ${cur.n} trades, espérance ${sgn(cur.e)} R, win rate ${pct(cur.wr)}, net ${sgn(cur.net)} R${cur.plan !== null ? ', plan suivi ' + pct(cur.plan) : ''}.${prev ? ` (année précédente : espérance ${sgn(prev.e)} R, net ${sgn(prev.net)} R)` : ''}`;
+      const mo = {}; ts.forEach(t => { const k = t.date.slice(0, 7); (mo[k] = mo[k] || []).push(+t.ret); });
+      const ml = Object.entries(mo).map(([k, a]) => [k, a.reduce((s, v) => s + v, 0), a.length]).sort((x, y) => y[1] - x[1]);
+      const mn = k => new Date(k + '-01T00:00:00Z').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      if (ml.length) { out.best = `${mn(ml[0][0])} : ${sgn(ml[0][1])} R (${ml[0][2]} trades)`; if (ml.length > 1) out.worst = `${mn(ml[ml.length - 1][0])} : ${sgn(ml[ml.length - 1][1])} R (${ml[ml.length - 1][2]} trades)`; }
+      if (errs.length) out.mistakes = `${errs[0].k} : ${errs[0].n} trade(s), coût estimé ${num(errs[0].cost)} R`;
+    }
     Object.keys(out).forEach(k => { if (!out[k]) delete out[k]; });
     return out;
   }
   function prefillNote(type, p, rv) {
     const pre = reviewPrefill(type, p, rv); if (!Object.keys(pre).length) return '';
-    return `<div class="note">✍️ Pré-rempli à partir de ${subReviews(type, p).length} revue(s) hebdomadaire(s) et des trades du mois. Relis et reformule avant d'enregistrer.</div>`;
+    const subs = subReviews(type, p), what = { monthly: 'du mois', quarterly: 'du trimestre', yearly: 'de l\'année' }[type];
+    return `<div class="note">✍️ Pré-rempli à partir de ${subs.length ? subs.length + ' revue(s) ' + TYPES[subTypeUsed(type, p)].toLowerCase() + ' et ' : ''}des trades ${what}${type !== 'monthly' ? ' (comparés à la période précédente)' : ''}. Relis et reformule avant d'enregistrer.</div>`;
+  }
+  /* --- liens TradingView des setups manqués --- */
+  function linksView(list) {
+    list = (list || []).filter(x => x && (x.url || typeof x === 'string'));
+    if (!list.length) return '';
+    return `<div class="ml-view">${list.map(x => { const u = typeof x === 'string' ? x : x.url, img = S.imageUrl ? S.imageUrl(u) : null;
+      return `<a class="ml-item" href="${esc(u)}" target="_blank" rel="noopener">${img ? `<img src="${esc(img)}" alt="Setup manqué" loading="lazy">` : '<span class="ml-ph">📈</span>'}<span>${esc(x.note || trunc(u.replace(/^https?:\/\/(www\.)?/, ''), 38))}</span></a>`; }).join('')}</div>`;
+  }
+  function linksField(k, label, list) {
+    list = (list && list.length ? list : [{ url: '', note: '' }]);
+    const row = (x, i) => `<div class="ml-row"><input class="ml-url" type="url" inputmode="url" placeholder="https://www.tradingview.com/x/…" value="${esc(x.url || '')}" aria-label="Lien ${i + 1}"><input class="ml-note" placeholder="Note (paire, jour, pourquoi manqué)" value="${esc(x.note || '')}" aria-label="Note ${i + 1}"><button type="button" class="btn sm ml-del" aria-label="Supprimer">×</button></div>`;
+    return `<div class="qa" id="q-${k}"><label>${esc(label)}</label><div class="ml-rows">${list.map(row).join('')}</div>
+      <button type="button" class="btn sm" id="ml-add">+ Ajouter un lien</button>
+      <div class="ml-prev">${linksView(list.filter(x => x.url))}</div>
+      <p class="muted small">Colle le lien de la capture TradingView (bouton 📷 → « Copier le lien »). Un lien par setup manqué.</p></div>`;
+  }
+  function linksCollect(k) {
+    const box = document.getElementById('q-' + k); if (!box) return [];
+    return Array.prototype.map.call(box.querySelectorAll('.ml-row'), r => ({ url: r.querySelector('.ml-url').value.trim(), note: r.querySelector('.ml-note').value.trim() })).filter(x => x.url);
+  }
+  function linksWire(k) {
+    const box = document.getElementById('q-' + k); if (!box) return;
+    const rows = box.querySelector('.ml-rows');
+    const refresh = () => { box.querySelector('.ml-prev').innerHTML = linksView(linksCollect(k)); const n = linksCollect(k).length, m = document.getElementById('q-missed'); if (m && n && (+m.value || 0) < n) m.value = n; };
+    const wireRow = r => { r.querySelector('.ml-del').onclick = () => { if (rows.children.length > 1) r.remove(); else { r.querySelector('.ml-url').value = ''; r.querySelector('.ml-note').value = ''; } refresh(); }; r.querySelector('.ml-url').onchange = refresh; r.querySelector('.ml-note').onchange = refresh; };
+    rows.querySelectorAll('.ml-row').forEach(wireRow);
+    box.querySelector('#ml-add').onclick = () => { const tmp = document.createElement('div'); tmp.innerHTML = `<div class="ml-row"><input class="ml-url" type="url" inputmode="url" placeholder="https://www.tradingview.com/x/…"><input class="ml-note" placeholder="Note (paire, jour, pourquoi manqué)"><button type="button" class="btn sm ml-del" aria-label="Supprimer">×</button></div>`; const r = tmp.firstChild; rows.appendChild(r); wireRow(r); r.querySelector('.ml-url').focus(); };
   }
 
   /* ================= CALENDRIER ÉCONOMIQUE ================= */
