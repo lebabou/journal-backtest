@@ -2758,10 +2758,21 @@
     if (!force && meta[k] && Date.now() - meta[k] < ttl && Object.keys(arch).length) return Promise.resolve(rebuildEvents(arch));
     if (NEWS_LOADING) return NEWS_LOADING;
     const from = addDaysISO(ym + '-01', -7), to = addDaysISO(addMonth(ym, 1) + '-01', 7);
-    const bq = fetchJSON(`https://biquote.io/api/calendar?from=${from}&to=${to}`).then(j => asList(j).map(normBQ)).catch(() => null);
-    const ff = ym === cur ? fetchJSON('https://nfs.faireconomy.media/ff_calendar_thisweek.json').then(j => asList(j).map(normEv)).catch(() => null) : Promise.resolve(null);
+    const span = l => { const v = l.filter(e => !isNaN(e.ts)).map(e => e.ts); return v.length ? [new Date(Math.min(...v)).toISOString().slice(0, 10), new Date(Math.max(...v)).toISOString().slice(0, 10)] : null; };
+    const diag = { bq: null, ff: null };
+    const bq = (async () => {
+      let list = asList(await fetchJSON(`https://biquote.io/api/calendar?from=${from}&to=${to}`)).map(normBQ);
+      const sp = span(list);
+      if (!sp || sp[0] > addDaysISO(from, 3) || sp[1] < addDaysISO(to, -10)) {   // plage tronquée par l'API : on redemande semaine par semaine
+        const chunks = []; for (let a = from; a < to; a = addDaysISO(a, 7)) chunks.push([a, addDaysISO(a, 7) < to ? addDaysISO(a, 7) : to]);
+        const more = await Promise.all(chunks.map(([a, z]) => fetchJSON(`https://biquote.io/api/calendar?from=${a}&to=${z}`).then(j => asList(j).map(normBQ)).catch(() => [])));
+        more.forEach(m => { list = list.concat(m); });
+      }
+      diag.bq = { n: list.length, span: span(list) }; return list;
+    })().catch(() => { diag.bq = { err: true }; return null; });
+    const ff = ym === cur ? fetchJSON('https://nfs.faireconomy.media/ff_calendar_thisweek.json').then(j => { const l = asList(j).map(normEv); diag.ff = { n: l.length, span: span(l) }; return l; }).catch(() => { diag.ff = { err: true }; return null; }) : Promise.resolve(null);
     NEWS_LOADING = Promise.all([bq, ff]).then(([a, b]) => {
-      let got = 0; const srcs = [];
+      let got = 0; const srcs = []; meta.diag = diag; meta.diagAt = Date.now(); setMeta(meta);
       [[a, 'biquote.io'], [b, 'ForexFactory']].forEach(([list, nm]) => { if (list && list.length) { srcs.push(nm); list.forEach(n => { if (n.title && !isNaN(n.ts)) { arch[evKey(n)] = n; got++; } }); } });
       if (got) {
         const lim = Date.now() - 400 * 864e5; Object.keys(arch).forEach(x => { if (arch[x].ts < lim) delete arch[x]; });
@@ -2772,6 +2783,11 @@
     return NEWS_LOADING;
   }
   const HIST = {}, NEWS_FAIL = {};
+  function newsDiag() {
+    const d = (getMeta().diag) || {}, f = x => x ? (x.err ? 'injoignable' : x.n + ' événements' + (x.span ? ` (${x.span[0].slice(8)}/${x.span[0].slice(5, 7)} → ${x.span[1].slice(8)}/${x.span[1].slice(5, 7)})` : '')) : 'non interrogé';
+    let route = ''; try { route = localStorage.getItem(NEWS_ROUTE_KEY) || ''; } catch (e) {}
+    return `Diagnostic : biquote.io ${f(d.bq)} · ForexFactory ${f(d.ff)}${route ? ' · voie : ' + route : ''}`;
+  }
   function loadHistory(e) {
     if (!e.eventId || HIST[e.eventId]) return Promise.resolve(HIST[e.eventId] || null);
     return fetchJSON('https://biquote.io/api/calendar/' + encodeURIComponent(e.eventId) + '/history').then(j => {
@@ -2892,6 +2908,7 @@
           </div>` : ''}
         </div>
       </div>
+      <p class="muted small">${newsDiag()}</p>
       <p class="muted small">Sources : ${esc(getMeta().src || 'biquote.io, ForexFactory')} (environ 90 jours avant et après aujourd'hui)${getMeta().at ? ' · mis à jour ' + relTime(getMeta().at) : ''}. Heures affichées dans le fuseau ${esc(tz)}. <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Ouvrir investing.com</a></p>
       ${NUI.settings ? newsSettingsHTML() : ''}
     </div>`;
