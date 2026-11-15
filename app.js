@@ -103,7 +103,7 @@
       DB = Drive.getCached() || EMPTY_JOURNAL;
       mergeDefaults(DB);
     }
-    updateAuthUI(); updateStatusBar(); initNewsAlerts(); requestNotifPermission(); setInterval(() => { updateStatusBar(); reviewAlertsOnce(); }, 30 * 60 * 1000);
+    updateAuthUI(); updateStatusBar(); initNewsAlerts(); requestNotifPermission(); themeSwitcher(); setInterval(() => { updateStatusBar(); reviewAlertsOnce(); }, 30 * 60 * 1000);
   }
   function updateAuthUI() {
     var btn = document.getElementById('auth-btn');
@@ -830,7 +830,7 @@
   const SORTS = { n: t => t.n, date: t => t.date + String(t.n).padStart(5, '0'), instrument: t => t.instrument, ret: t => t.ret === null ? -1e9 : t.ret,
     agg: t => t.agg && S.filled(t.agg.ret) ? t.agg.ret : -1e9, session: t => t.session, entry: t => t.entry };
   const delta = t => S.hasAgg(t) ? t.agg.ret - t.ret : null;
-  function renderJournal() {
+  function renderJournalList() {
     const f = ui.jr, q = f.q.toLowerCase();
     let ts = enriched().filter(t => (!f.instrument || t.instrument === f.instrument) && (!f.session || t.session === f.session) && (!f.result || t._result === f.result) &&
       (!f.direction || t.direction === f.direction) && (!f.entry || t.entry === f.entry) && (!f.incomplete || completeness(t).pct < 100) && (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) &&
@@ -1307,6 +1307,7 @@
 
       $('#main').innerHTML =
         '<h1>\ud83d\udcdd Trading Plan <span class="muted small">(\u00e9dition)</span></h1>' + planBar +
+        '<div class="card" style="margin-bottom:12px"><div class="form"><label>Sous-titre (ex. London Checklist)<input id="tp-subtitle" value="' + esc(plan.subtitle || '') + '"></label><label class="wide">Images de setup (un lien TradingView ou image par ligne)<textarea id="tp-images">' + esc((plan.images || []).join('\n')) + '</textarea></label></div></div>' +
         '<div class="card"><div class="form">' + sectionsHTML +
         '<button class="btn" id="tp-add-sec">+ Ajouter une section</button>' +
         '</div></div>' +
@@ -1399,6 +1400,9 @@
           var v = el.value.trim(); if (v) newPlan.notes.push(v);
         });
         newPlan.id = plan.id; newPlan.name = plan.name;
+        ['reviews', 'color'].forEach(function(k) { if (plan[k] !== undefined) newPlan[k] = plan[k]; });
+        newPlan.subtitle = ($('#tp-subtitle') || {}).value ? $('#tp-subtitle').value.trim() : '';
+        newPlan.images = (($('#tp-images') || {}).value || '').split('\n').map(function(x) { return x.trim(); }).filter(Boolean);
         var idx = pd.plans.map(function(p) { return p.id; }).indexOf(plan.id);
         if (idx >= 0) DB.tradingPlans[idx] = newPlan;
         DB.tradingPlan = newPlan; // keep the checklist and older code working
@@ -1423,24 +1427,10 @@
       return;
     }
 
-    // Read-only view
-    var html = '<h1>\ud83d\udcdd Trading Plan \u2014 ' + esc(plan.name) + '</h1>' + planBar;
-    html += '<div class="actions" style="margin-bottom:14px"><button class="btn primary" id="tp-edit">Modifier le plan</button></div>';
-    plan.sections.forEach(function(sec) {
-      html += '<div class="card" style="margin-bottom:12px"><h2 style="margin-top:0">' + esc(sec.title) + '</h2><ul style="margin:0;padding-left:20px">';
-      sec.items.forEach(function(item) {
-        html += '<li style="margin-bottom:4px">' + esc(item) + '</li>';
-      });
-      html += '</ul></div>';
-    });
-    if (plan.notes && plan.notes.length) {
-      html += '<div class="card" style="margin-bottom:12px;border-left:3px solid var(--be)"><h2 style="margin-top:0">\ud83d\udcdd Trading notes</h2><ul style="margin:0;padding-left:20px">';
-      plan.notes.forEach(function(note) {
-        html += '<li style="margin-bottom:6px">' + esc(note) + '</li>';
-      });
-      html += '</ul></div>';
-    }
+    // Read-only view (V5 : présentation « plan card »)
+    var html = tpViewHTML(plan, planBar);
     $('#main').innerHTML = html;
+    wireTpView(plan);
 
     // --- plan management ---
     var tpSel = $('#tp-select');
@@ -2749,7 +2739,7 @@
     if (!c.impacts) c.impacts = c.impact === '3' ? ['High'] : c.impact === '2,3' ? ['High', 'Medium'] : ['High', 'Medium', 'Low', 'Holiday'];
     return c;
   }
-  function newsBlockCfg() { DB.newsBlock = Object.assign({ enabled: false, currencies: ['USD', 'EUR', 'GBP'], window: 15, behavior: 'both' }, DB.newsBlock || {}); return DB.newsBlock; }
+  function newsBlockCfg() { const d = { enabled: false, currencies: ['USD', 'EUR', 'GBP'], window: 15, behavior: 'both' }; if (!DB.newsBlock) DB.newsBlock = {}; Object.keys(d).forEach(k => { if (DB.newsBlock[k] === undefined) DB.newsBlock[k] = d[k]; }); return DB.newsBlock; }
   function saveNewsSoon(msg) { clearTimeout(_nsSave); _nsSave = setTimeout(() => save(msg || 'Préférences du calendrier enregistrées'), 1200); }
   function archLoad() { try { return JSON.parse(localStorage.getItem(NEWS_ARCH)) || {}; } catch (e) { return {}; } }
   function archSave(a) { try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e) { const ks = Object.keys(a).sort((x, y) => a[x].ts - a[y].ts); ks.slice(0, Math.ceil(ks.length / 3)).forEach(k => delete a[k]); try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e2) {} } }
@@ -3058,6 +3048,362 @@
   function hideNews() { const nc = $('#news-container'); if (nc) nc.hidden = true; $('#main').hidden = false; }
 
 
+  /* ================= V5 : thèmes, Sanctuary, Journal calendrier (R), Trading Plan ================= */
+
+  /* ---------- THÈME ---------- */
+  const THEME_KEY = 'journal_theme_v1';
+  const THEMES = [['light', '☀️ Clair'], ['dark', '🌙 Sombre'], ['auto', '🖥 Auto']];
+  function getTheme() { try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { return 'auto'; } }
+  function applyTheme(t) {
+    t = t || getTheme();
+    if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+    const tv = DB && DB.tradingView; // le graphique intégré suit le thème si l'utilisateur n'a rien choisi
+    if (tv && !tv.themeLocked) tv.theme = (t === 'light' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches)) ? 'light' : 'dark';
+  }
+  function themeSwitcher() {
+    const top = document.querySelector('.top'); if (!top || document.getElementById('theme-sel')) return;
+    const sel = document.createElement('select'); sel.id = 'theme-sel'; sel.className = 'theme-sel'; sel.setAttribute('aria-label', 'Thème du journal');
+    sel.innerHTML = THEMES.map(([k, l]) => `<option value="${k}"${k === getTheme() ? ' selected' : ''}>${l}</option>`).join('');
+    sel.onchange = () => { try { localStorage.setItem(THEME_KEY, sel.value); } catch (e) {} applyTheme(sel.value); render(); };
+    const auth = top.querySelector('#auth-info');
+    if (auth) top.insertBefore(sel, auth); else top.appendChild(sel);
+  }
+  applyTheme();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', themeSwitcher); else setTimeout(themeSwitcher, 0);
+
+  /* ---------- SANCTUARY : paysages (SVG générés), sons (Web Audio), séances, exercices ---------- */
+  const SCENES = [
+    { name: 'Aube sur les crêtes', sky: ['#f6c9a7', '#a9c6ea'], m: ['#8fa3c4', '#6a80a6', '#475a7d'], sun: '#fff1d6' },
+    { name: 'Vallée verte', sky: ['#d9e4ea', '#eef3f5'], m: ['#94b483', '#6f955f', '#4b6f41'], sun: null },
+    { name: 'Océan calme', sky: ['#a7c6f7', '#d6ecfb'], m: ['#7da3c2', '#58819f', '#2f5a7a'], sun: '#ffffff', sea: true },
+    { name: 'Crépuscule', sky: ['#f6b6d6', '#9fb6ea'], m: ['#9b86b8', '#755f96', '#4d3e6c'], sun: '#ffe1b8' },
+    { name: 'Nuit étoilée', sky: ['#0f2230', '#2c5266'], m: ['#284456', '#1b3242', '#10202c'], sun: '#f5f3d7', stars: true },
+  ];
+  function sceneSVG(i, small) {
+    const s = SCENES[i % SCENES.length]; let seed = (i + 1) * 9301;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const ridge = (base, amp, n) => { let d = `M0,${base}`; for (let k = 0; k <= n; k++) d += ` L${(k / n * 400).toFixed(1)},${(base - rnd() * amp).toFixed(1)}`; return d + ' L400,220 L0,220 Z'; };
+    const id = 'sg' + i + (small ? 's' : '');
+    let stars = ''; if (s.stars) for (let k = 0; k < 40; k++) stars += `<circle cx="${(rnd() * 400).toFixed(0)}" cy="${(rnd() * 90).toFixed(0)}" r="${(rnd() * 1.2 + .3).toFixed(1)}" fill="#fff" opacity="${(rnd() * .6 + .3).toFixed(2)}"/>`;
+    return `<svg viewBox="0 0 400 220" preserveAspectRatio="xMidYMid slice" class="scene" role="img" aria-label="${esc(s.name)}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.sky[0]}"/><stop offset="1" stop-color="${s.sky[1]}"/></linearGradient></defs>
+      <rect width="400" height="220" fill="url(#${id})"/>${stars}${s.sun ? `<circle cx="${s.stars ? 320 : 290}" cy="${s.stars ? 45 : 70}" r="${s.stars ? 14 : 22}" fill="${s.sun}" opacity=".9"/>` : ''}
+      <path d="${ridge(120, 50, 9)}" fill="${s.m[0]}" opacity=".85"/><path d="${ridge(150, 45, 7)}" fill="${s.m[1]}" opacity=".92"/>${s.sea ? '<rect y="175" width="400" height="45" fill="#3f6f93" opacity=".9"/>' : ''}<path d="${ridge(s.sea ? 182 : 180, 35, 6)}" fill="${s.m[2]}"/></svg>`;
+  }
+  const AMB = { ctx: null, nodes: [], gain: null, kind: 'none' };
+  const SOUNDS = [['none', 'Silence'], ['rain', 'Pluie'], ['ocean', 'Vagues'], ['wind', 'Vent'], ['brown', 'Bruit brun'], ['bowl', 'Bol chantant']];
+  function audioCtx() { if (!AMB.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; AMB.ctx = new AC(); } if (AMB.ctx.state === 'suspended') AMB.ctx.resume(); return AMB.ctx; }
+  function noiseSrc(C, type) {
+    const len = C.sampleRate * 4, buf = C.createBuffer(1, len, C.sampleRate), d = buf.getChannelData(0); let last = 0, b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; if (type === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else if (type === 'pink') { b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913; d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.2; } else d[i] = w * 0.35; }
+    const s = C.createBufferSource(); s.buffer = buf; s.loop = true; return s;
+  }
+  function lfo(C, freq, depth, target, offset) { const o = C.createOscillator(), g = C.createGain(); o.frequency.value = freq; g.gain.value = depth; o.connect(g).connect(target); if (offset !== undefined) target.value = offset; o.start(); AMB.nodes.push(o); }
+  function ambStart(kind, vol) {
+    ambStop(); AMB.kind = kind; if (kind === 'none') return;
+    const C = audioCtx(); if (!C) return;
+    const g = C.createGain(); g.gain.value = 0; g.connect(C.destination); g.gain.linearRampToValueAtTime(vol, C.currentTime + 2); AMB.gain = g;
+    const flt = (type, f, q) => { const b = C.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q) b.Q.value = q; return b; };
+    if (kind === 'rain') { const s = noiseSrc(C, 'white'), a = flt('highpass', 600), b = flt('lowpass', 7500); s.connect(a).connect(b).connect(g); s.start(); AMB.nodes.push(s); }
+    if (kind === 'ocean') { const s = noiseSrc(C, 'brown'), a = flt('lowpass', 900), w = C.createGain(); s.connect(a).connect(w).connect(g); lfo(C, 0.09, 0.45, w.gain, 0.55); s.start(); AMB.nodes.push(s); }
+    if (kind === 'wind') { const s = noiseSrc(C, 'pink'), a = flt('bandpass', 500, 0.8); s.connect(a).connect(g); lfo(C, 0.05, 280, a.frequency, 520); s.start(); AMB.nodes.push(s); }
+    if (kind === 'brown') { const s = noiseSrc(C, 'brown'); s.connect(g); s.start(); AMB.nodes.push(s); }
+    if (kind === 'bowl') [[196, .5], [392.6, .25], [588, .12], [784.9, .06]].forEach(([f, a], k) => { const o = C.createOscillator(), og = C.createGain(); o.type = 'sine'; o.frequency.value = f; og.gain.value = a * 0.35; o.connect(og).connect(g); lfo(C, 0.07 + k * 0.03, a * 0.12, og.gain); o.start(); AMB.nodes.push(o); });
+  }
+  function ambVolume(v) { if (AMB.gain && AMB.ctx) AMB.gain.gain.setTargetAtTime(v, AMB.ctx.currentTime, 0.2); }
+  function ambStop() { AMB.nodes.forEach(n => { try { n.stop(); } catch (e) {} }); AMB.nodes = []; if (AMB.gain) { try { AMB.gain.disconnect(); } catch (e) {} AMB.gain = null; } AMB.kind = 'none'; }
+  function bell(n) {
+    const C = audioCtx(); if (!C) return;
+    for (let r = 0; r < (n || 1); r++) [[1, .5], [2.76, .18], [5.4, .08]].forEach(([k, a]) => {
+      const o = C.createOscillator(), g = C.createGain(), t0 = C.currentTime + r * 2.2; o.frequency.value = 528 * k; g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(a * 0.5, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.5);
+      o.connect(g).connect(C.destination); o.start(t0); o.stop(t0 + 4.6);
+    });
+  }
+  function sanct() { const d = { sessions: [], favs: [], scene: 0, minutes: 10, bells: true, bellEvery: 1, sound: 'rain', volume: 0.5, voice: false }; if (!DB.sanctuary) DB.sanctuary = {}; Object.keys(d).forEach(k => { if (DB.sanctuary[k] === undefined) DB.sanctuary[k] = d[k]; }); return DB.sanctuary; }
+  function planRuleLines() {
+    const p = activePlan ? activePlan() : null; if (!p) return [];
+    const entry = (p.sections || []).find(s => /entry|entrée/i.test(s.title)), out = [];
+    if (entry) entry.items.filter(Boolean).forEach(x => out.push([8, x]));
+    (p.notes || []).filter(Boolean).slice(0, 4).forEach(x => out.push([10, x]));
+    return out;
+  }
+  const EXOS = () => [
+    { id: 'reboot60', cat: 'Reboot', name: 'Reset 60 secondes', sub: 'Remise à zéro rapide', scene: 2, steps: [[10, 'Lâche la souris. Pose les mains à plat, épaules relâchées.'], [15, 'Deux inspirations par le nez, puis une longue expiration par la bouche.'], [15, 'Encore une fois : deux inspirations, une longue expiration.'], [10, 'Nomme en un mot ce que tu ressens.'], [10, 'Reviens au plan : quel est le prochain point de ta checklist ?']] },
+    { id: 'box', cat: 'Reboot', name: 'Respiration carrée', sub: '4 – 4 – 4 – 4', scene: 4, breath: [4, 4, 4, 4], cycles: 12 },
+    { id: 'sigh', cat: 'Reboot', name: 'Soupir physiologique', sub: 'Calme en 2 minutes', scene: 1, breath: [3, 1, 6, 0], cycles: 12, labels: ['Inspire', 'Petite inspiration en plus', 'Longue expiration', ''] },
+    { id: 'revenge', cat: 'Recovery', name: 'Après une perte', sub: 'Stopper le revenge trade', scene: 3, steps: [[20, 'Ferme la plateforme ou recule ta chaise. Aucun ordre pendant cet exercice.'], [30, 'Respire lentement : 4 secondes d\'inspiration, 6 secondes d\'expiration.'], [20, 'Cette perte faisait partie du risque prévu. 1 R, rien de plus.'], [25, 'Relis ta règle : « If invalidation hits, reset. No coping, no revenge trade. »'], [25, 'Vérifie tes garde-fous : as-tu atteint ta perte maximale ou ton nombre de trades du jour ?'], [30, 'Décide maintenant : pause de 30 minutes ou fin de journée. Écris ta décision dans le journal.']] },
+    { id: 'letgo', cat: 'Recovery', name: 'Lâcher la journée', sub: 'Clôture du soir', scene: 3, steps: [[30, 'Repense à ta journée de trading sans la juger.'], [30, 'Une chose que tu as bien faite, même petite.'], [30, 'Une chose à améliorer demain : note-la dans « Amélioration pour demain ».'], [40, 'Respire profondément. Le marché sera là demain.'], [30, 'Ferme les graphiques. La journée de trading est terminée.']] },
+    { id: 'scan', cat: 'Recovery', name: 'Scan corporel', sub: 'Relâcher la tension', scene: 1, steps: [[30, 'Ferme les yeux. Sens le poids de ton corps sur la chaise.'], [30, 'Front, mâchoire, nuque : relâche.'], [30, 'Épaules et bras : laisse-les tomber.'], [30, 'Poitrine et ventre : observe la respiration sans la forcer.'], [30, 'Jambes et pieds : ancrés au sol.'], [30, 'Reviens doucement. Ouvre les yeux.']] },
+    { id: 'plan', cat: 'Rewire', name: 'Suivre mon plan', sub: 'Relecture guidée du plan actif', scene: 0, steps: [[8, 'Avant de trader, relis ton plan point par point.']].concat(planRuleLines().length ? planRuleLines() : [[10, 'Ajoute des critères d\'entrée et des notes dans ton Trading Plan pour personnaliser cet exercice.']]).concat([[8, 'Tu ne prends que les setups qui cochent tout. Le reste, tu le laisses passer.']]) },
+    { id: 'visual', cat: 'Rewire', name: 'Visualisation pré-session', sub: 'Se préparer avant Londres', scene: 0, steps: [[30, 'Visualise ton écran et la paire que tu vas trader.'], [40, 'Imagine le setup A+ se former : sweep, market shift, POI.'], [30, 'Tu entres calmement, ton risque est déjà défini.'], [30, 'Imagine maintenant l\'invalidation : tu acceptes la perte sans réagir.'], [30, 'Tu respectes ton plan quel que soit le résultat. C\'est ça, une bonne journée.']] },
+    { id: 'process', cat: 'Rewire', name: 'Process plutôt que résultat', sub: 'Se détacher du P&L', scene: 4, steps: [[20, 'Un trade n\'est qu\'un échantillon de ton edge.'], [20, 'Ta mission : exécuter le plan, pas gagner chaque trade.'], [20, 'Un trade perdant bien exécuté est un bon trade.'], [20, 'Un trade gagnant hors plan est un mauvais trade.'], [20, 'Juge ta journée sur ton score de discipline.']] },
+  ].map(x => { if (x.breath) { const lb = x.labels || ['Inspire', 'Retiens', 'Expire', 'Retiens']; x.steps = []; for (let c = 0; c < x.cycles; c++) x.breath.forEach((s, k) => { if (s) x.steps.push([s, lb[k], k]); }); } x.secs = x.steps.reduce((a, s) => a + s[0], 0); return x; });
+  const fmtMS = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  let SAN = { tab: 'Tout', q: '', run: null, timer: null };
+  function sanctStats() {
+    const ss = sanct().sessions, today = todayISO(), wk = weekStartISO(today);
+    const min = ss.filter(x => x.date >= wk).reduce((a, x) => a + (x.minutes || 0), 0);
+    const days = new Set(ss.map(x => x.date)); let streak = 0, d = days.has(today) ? today : addDaysISO(today, -1);
+    while (days.has(d)) { streak++; d = addDaysISO(d, -1); }
+    return { min: Math.round(min), streak, today: days.has(today), n: ss.length };
+  }
+  async function logSession(type, minutes) { sanct().sessions.push({ date: todayISO(), at: new Date().toISOString(), type, minutes: +minutes.toFixed(1) }); await save('Séance enregistrée 🧘'); }
+  function speak(txt) { try { if (!sanct().voice || !window.speechSynthesis || !txt) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(txt); u.lang = 'fr-FR'; u.rate = 0.9; speechSynthesis.speak(u); } catch (e) {} }
+  let _wake = null;
+  async function wakeOn() { try { if (navigator.wakeLock) _wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  function wakeOff() { try { if (_wake) _wake.release(); } catch (e) {} _wake = null; }
+  function stopRun(silent) { clearInterval(SAN.timer); SAN.timer = null; SAN.run = null; ambStop(); wakeOff(); try { speechSynthesis.cancel(); } catch (e) {} if (!silent && view === 'sanctuary') renderSanctuary(); }
+
+  function renderSanctuary() {
+    const c = sanct(), st = sanctStats(), sc = c.scene % SCENES.length, run = SAN.run;
+    const ex = EXOS(), cats = ['Tout', 'Reboot', 'Rewire', 'Recovery', 'Favoris'];
+    const list = ex.filter(x => (SAN.tab === 'Tout' || (SAN.tab === 'Favoris' ? c.favs.indexOf(x.id) >= 0 : x.cat === SAN.tab)) && (!SAN.q || (x.name + ' ' + x.sub + ' ' + x.cat).toLowerCase().indexOf(SAN.q.toLowerCase()) >= 0));
+    const exo = run && run.exo ? ex.find(x => x.id === run.exo) : null;
+    $('#main').innerHTML = `
+      <div class="san-head"><h1>🧘 Sanctuary</h1><div class="san-stats"><span><b>${st.min}</b> min cette semaine</span><span><b>${st.streak}</b> jour${st.streak > 1 ? 's' : ''} d'affilée</span><span>${st.today ? '✅ Méditation faite aujourd\'hui' : '○ Pas encore de séance aujourd\'hui'}</span></div></div>
+      <div class="san-hero">
+        <div class="san-scene">${sceneSVG(sc)}</div>
+        <button class="san-nav prev" id="sn-prev" aria-label="Paysage précédent">‹</button><button class="san-nav next" id="sn-next" aria-label="Paysage suivant">›</button>
+        <div class="san-dots">${SCENES.map((s, i) => `<button class="${i === sc ? 'on' : ''}" data-scene="${i}" aria-label="${esc(s.name)}"></button>`).join('')}</div>
+        <div class="san-card">
+          ${run ? `<div class="san-run">
+              <div class="san-title">${exo ? esc(exo.name) : 'Séance de méditation'}</div>
+              <div class="san-breath ${run.phase || ''}" id="sn-circle" style="transition-duration:${run.stepSecs || 4}s"></div>
+              <div class="san-step" id="sn-step">${esc(run.label || 'Respire calmement')}</div>
+              <div class="san-time" id="sn-time">${fmtMS(run.left)}</div>
+              <div class="san-prog"><span id="sn-prog" style="width:${Math.round((1 - run.left / run.total) * 100)}%"></span></div>
+              <div class="san-actions"><button class="btn" id="sn-pause">${run.paused ? 'Reprendre' : 'Pause'}</button><button class="btn" id="sn-stop">Arrêter</button></div>
+            </div>` : `
+            <div class="san-title">🪷 Séance de méditation</div>
+            <label class="san-lbl">Durée</label>
+            <div class="san-dur">🕒 <input id="sn-min" type="number" min="1" max="120" value="${c.minutes}" aria-label="Durée en minutes"> min</div>
+            <div class="nc-seg">${[5, 10, 15, 30, 60].map(m => `<button class="${+c.minutes === m ? 'on' : ''}" data-min="${m}">${m < 60 ? m + ' min' : '1 h'}</button>`).join('')}</div>
+            <label class="san-lbl san-row">Cloches d'intervalle <input type="checkbox" id="sn-bells" ${c.bells ? 'checked' : ''}></label>
+            ${c.bells ? `<select id="sn-every">${[1, 2, 5, 10].map(m => `<option value="${m}"${+c.bellEvery === m ? ' selected' : ''}>Toutes les ${m} min</option>`).join('')}</select>` : ''}
+            <label class="san-lbl">Son d'ambiance</label>
+            <select id="sn-sound">${SOUNDS.map(([k, l]) => `<option value="${k}"${c.sound === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
+            <div class="san-vol">🔈 <input type="range" id="sn-vol" min="0" max="1" step="0.05" value="${c.volume}" aria-label="Volume"></div>
+            <label class="san-lbl san-row">Voix guidée (exercices) <input type="checkbox" id="sn-voice" ${c.voice ? 'checked' : ''}></label>
+            <button class="btn primary san-start" id="sn-start">Commencer</button>`}
+        </div>
+      </div>
+      <div class="card san-kit">
+        <div class="san-kithead"><div><h2 style="margin:0">Mental Toolkit</h2><span class="muted small">Exercices guidés pour garder un esprit de trader discipliné.</span></div><input id="sn-q" type="search" placeholder="Rechercher…" value="${esc(SAN.q)}"></div>
+        <div class="san-tabs">${cats.map(k => `<button class="${SAN.tab === k ? 'on' : ''}" data-tab="${k}">${k === 'Favoris' ? '☆ Favoris ' + c.favs.length : k}</button>`).join('')}</div>
+        <div class="san-grid">${list.map(x => `<div class="san-exo" data-exo="${x.id}" role="button" tabindex="0">
+            ${sceneSVG(x.scene, true)}<span class="san-badge">${x.cat}</span>
+            <button class="san-fav ${c.favs.indexOf(x.id) >= 0 ? 'on' : ''}" data-fav="${x.id}" aria-label="Favori">${c.favs.indexOf(x.id) >= 0 ? '★' : '☆'}</button>
+            <span class="san-play">▶</span>
+            <div class="san-exoname"><b>${esc(x.name)}</b><span>${esc(x.sub)}</span></div><span class="san-dur2">${fmtMS(x.secs)}</span></div>`).join('') || '<p class="muted">Aucun exercice.</p>'}</div>
+      </div>
+      ${c.sessions.length ? `<p class="muted small">${c.sessions.length} séance(s) enregistrée(s). Dernière : ${esc(fmtStamp(c.sessions[c.sessions.length - 1].at))}.</p>` : ''}`;
+    const setScene = i => { c.scene = (i + SCENES.length) % SCENES.length; saveSoonSan(); renderSanctuary(); };
+    $('#sn-prev').onclick = () => setScene(sc - 1); $('#sn-next').onclick = () => setScene(sc + 1);
+    document.querySelectorAll('[data-scene]').forEach(b => b.onclick = () => setScene(+b.dataset.scene));
+    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { SAN.tab = b.dataset.tab; renderSanctuary(); });
+    $('#sn-q').onchange = e => { SAN.q = e.target.value.trim(); renderSanctuary(); };
+    document.querySelectorAll('[data-fav]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const i = c.favs.indexOf(b.dataset.fav); if (i >= 0) c.favs.splice(i, 1); else c.favs.push(b.dataset.fav); saveSoonSan(); renderSanctuary(); });
+    document.querySelectorAll('[data-exo]').forEach(b => { const go = () => startExo(b.dataset.exo); b.onclick = go; b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
+    if (run) {
+      $('#sn-pause').onclick = () => { run.paused = !run.paused; if (run.paused) { ambStop(); try { speechSynthesis.cancel(); } catch (e) {} } else ambStart(c.sound, +c.volume); run.last = Date.now(); renderSanctuary(); };
+      $('#sn-stop').onclick = async () => { const done = (run.total - run.left) / 60; stopRun(true); if (done >= 1) await logSession(run.exo || 'meditation', done); renderSanctuary(); };
+      return;
+    }
+    document.querySelectorAll('[data-min]').forEach(b => b.onclick = () => { c.minutes = +b.dataset.min; saveSoonSan(); renderSanctuary(); });
+    $('#sn-min').onchange = e => { c.minutes = Math.max(1, Math.min(120, +e.target.value || 10)); saveSoonSan(); renderSanctuary(); };
+    $('#sn-bells').onchange = e => { c.bells = e.target.checked; saveSoonSan(); renderSanctuary(); };
+    if ($('#sn-every')) $('#sn-every').onchange = e => { c.bellEvery = +e.target.value; saveSoonSan(); };
+    $('#sn-sound').onchange = e => { c.sound = e.target.value; saveSoonSan(); ambStart(c.sound, +c.volume); clearTimeout(SAN.preview); SAN.preview = setTimeout(() => { if (!SAN.run) ambStop(); }, 4000); };
+    $('#sn-vol').oninput = e => { c.volume = +e.target.value; ambVolume(c.volume); saveSoonSan(); };
+    $('#sn-voice').onchange = e => { c.voice = e.target.checked; saveSoonSan(); };
+    $('#sn-start').onclick = () => startRun({ total: c.minutes * 60 });
+  }
+  let _sanSave = null; function saveSoonSan() { clearTimeout(_sanSave); _sanSave = setTimeout(() => save('Préférences Sanctuary enregistrées'), 1500); }
+  function startExo(id) { const x = EXOS().find(e => e.id === id); if (x) startRun({ total: x.secs, exo: x.id }); }
+  function startRun(o) {
+    const c = sanct(); stopRun(true); clearTimeout(SAN.preview);
+    const x = o.exo ? EXOS().find(e => e.id === o.exo) : null;
+    SAN.run = { total: o.total, left: o.total, exo: o.exo || '', paused: false, last: Date.now(), stepIdx: -1, label: x ? '' : 'Respire calmement', nextBell: c.bells ? c.bellEvery * 60 : Infinity };
+    audioCtx(); ambStart(c.sound, +c.volume); bell(1); wakeOn();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    renderSanctuary(); tick();
+    SAN.timer = setInterval(tick, 250);
+    function tick() {
+      const r = SAN.run; if (!r) return;
+      const now = Date.now(); if (!r.paused) r.left = Math.max(0, r.left - (now - r.last) / 1000); r.last = now;
+      const el = r.total - r.left;
+      if (x) { let acc = 0, idx = x.steps.length - 1; for (let i = 0; i < x.steps.length; i++) { if (el < acc + x.steps[i][0]) { idx = i; break; } acc += x.steps[i][0]; }
+        if (idx !== r.stepIdx) { r.stepIdx = idx; const s = x.steps[idx]; r.label = s[1]; r.stepSecs = s[0]; r.phase = s[2] === 0 ? 'in' : s[2] === 2 ? 'out' : s[2] === undefined ? '' : 'hold-' + (s[2] === 1 ? 'in' : 'out');
+          const stEl = $('#sn-step'), ci = $('#sn-circle'); if (stEl) stEl.textContent = r.label; if (ci) { ci.style.transitionDuration = r.stepSecs + 's'; ci.className = 'san-breath ' + r.phase; } speak(r.label); }
+      } else {
+        const ph = Math.floor(el / 5) % 2 === 0 ? 'in' : 'out'; if (ph !== r.phase) { r.phase = ph; r.stepSecs = 5; const ci = $('#sn-circle'), stEl = $('#sn-step'); if (ci) { ci.style.transitionDuration = '5s'; ci.className = 'san-breath ' + ph; } if (stEl) stEl.textContent = ph === 'in' ? 'Inspire…' : 'Expire…'; }
+        if (el >= r.nextBell && r.left > 2) { bell(1); r.nextBell += sanct().bellEvery * 60; }
+      }
+      const t = $('#sn-time'), p = $('#sn-prog'); if (t) t.textContent = fmtMS(Math.ceil(r.left)); if (p) p.style.width = Math.round(el / r.total * 100) + '%';
+      if (r.left <= 0) { const mins = r.total / 60, ex = r.exo; stopRun(true); bell(3); toast('🧘 Séance terminée'); logSession(ex || 'meditation', mins).then(() => { if (view === 'sanctuary') renderSanctuary(); }); }
+    }
+  }
+
+  /* ---------- JOURNAL : vue calendrier en R ---------- */
+  const JKEY = 'journal_view_v1';
+  let JCAL = { month: '', day: '', n: null };
+  function shotsOf(t) {
+    const out = []; Object.values(t.screens || {}).forEach(v => (Array.isArray(v) ? v : [v]).forEach(x => { const u = typeof x === 'string' ? x : x && (x.url || x.src); if (u) out.push(u); }));
+    return out;
+  }
+  function monthAnalysis(ts, mLabel) {
+    const good = [], bad = [];
+    if (!ts.length) return { head: 'Aucun trade sur ce mois.', good, bad };
+    const r = rets(ts), net = r.reduce((a, b) => a + b, 0), wr = r.filter(x => x > 0).length / r.length;
+    const by = (fn) => { const m = {}; ts.forEach(t => { const k = fn(t); if (!k) return; (m[k] = m[k] || []).push(+t.ret || 0); }); return Object.entries(m).filter(([, a]) => a.length >= 2).map(([k, a]) => [k, a.reduce((x, y) => x + y, 0), a.length]).sort((a, b) => b[1] - a[1]); };
+    const ss = by(t => t.setup), se = by(t => t.session), gr = by(t => t._grade);
+    if (ss.length && ss[0][1] > 0) good.push(`Meilleur setup : ${ss[0][0]} (${sgn(ss[0][1])} R sur ${ss[0][2]} trades).`);
+    if (se.length && se[0][1] > 0) good.push(`Meilleure session : ${se[0][0]} (${sgn(se[0][1])} R).`);
+    const ap = ts.filter(t => t._grade === 'A+' || t._grade === 'A'); if (ap.length >= 2) { const e = meanOf(rets(ap)); if (e > 0) good.push(`Setups A/A+ : ${ap.length} trades, espérance ${sgn(e)} R.`); }
+    const pf = ts.filter(t => t.planFollow), pfy = pf.filter(t => t.planFollow === 'Yes'); if (pf.length) (pfy.length / pf.length >= 0.8 ? good : bad).push(`Plan suivi sur ${pct(pfy.length / pf.length)} des trades (${pfy.length}/${pf.length}).`);
+    const clean = ts.filter(isClean); if (clean.length >= 2 && meanOf(rets(clean)) > 0) good.push(`Trades sans erreur : ${clean.length}, espérance ${sgn(meanOf(rets(clean)))} R.`);
+    if (ss.length > 1 && ss[ss.length - 1][1] < 0) bad.push(`Setup le plus coûteux : ${ss[ss.length - 1][0]} (${sgn(ss[ss.length - 1][1])} R).`);
+    const tags = {}; ts.forEach(t => (t.mistakeTags || []).forEach(g => { tags[g] = (tags[g] || 0) + 1; }));
+    const tt = Object.entries(tags).sort((a, b) => b[1] - a[1]); if (tt.length) bad.push(`Erreur la plus fréquente : ${tt[0][0]} (${tt[0][1]} fois).`);
+    const fomo = ts.filter(t => t.fomo === 'Yes').length; if (fomo) bad.push(`${fomo} trade(s) en FOMO, total ${sgn(rets(ts.filter(t => t.fomo === 'Yes')).reduce((a, b) => a + b, 0))} R.`);
+    const kz = ts.filter(t => t.killzone === 'No').length; if (kz) bad.push(`${kz} trade(s) hors killzone.`);
+    const g = getGuardrails(), days = {}; ts.forEach(t => { (days[t.date] = days[t.date] || []).push(t); });
+    const breakDays = Object.entries(days).filter(([, a]) => (g.maxTrades && a.length > g.maxTrades) || a.some(t => t.revenge === 'Yes' || t.overtrade === 'Yes' || (t.guardrailsBroken || []).length || t.planFollow === 'No')).map(([d]) => d).sort();
+    const wd = d => new Date(d + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', timeZone: 'UTC' });
+    const head = `${mLabel} : ${ts.length} trades, ${sgn(net)} R, win rate ${pct(wr)}. ` + (breakDays.length ? `Écarts aux règles sur ${breakDays.length} jour(s) : ${breakDays.slice(0, 6).map(wd).join(', ')}${breakDays.length > 6 ? '…' : ''}.` : 'Aucun écart aux règles enregistré.');
+    if (!good.length) good.push('Pas encore assez de trades pour dégager un point fort (au moins 2 trades par catégorie).');
+    if (!bad.length) bad.push('Rien de notable : continue comme ça.');
+    return { head, good, bad };
+  }
+  function tradePanelHTML(t) {
+    const R = +t.ret, chip = (opts, v) => opts.map(o => `<span class="chip ${o === v ? 'on' : ''}">${o}</span>`).join('');
+    const emo = k => t['emo' + k] ? t['emo' + k] + (isSet(t['emo' + k + 'Lvl']) ? ' ' + t['emo' + k + 'Lvl'] + '/5' : '') : (k === 'Entry' ? t.entryEmotion : k === 'Exit' ? t.exitEmotion : '') || '–';
+    const shots = shotsOf(t);
+    const row = (l, v) => `<div class="tp-row"><span>${l}</span><b>${v === undefined || v === null || v === '' ? '–' : v}</b></div>`;
+    return `<div class="jc-trade">
+      <div class="jc-tl">
+        <div class="muted small">Détails du trade #${t.n}</div>
+        <div class="jc-big ${cls(R)}">${S.filled(t.ret) ? sgn(R) + ' R' : '–'}</div>
+        <div class="jc-meta"><div><b>${esc(t.instrument || '–')}</b><span>Instrument</span></div><div><b>${t.direction === 'Short' || /sell/i.test(t.direction) ? '↓' : '↑'} ${esc(t.direction || '–')}</b><span>Direction</span></div><div><b>${esc(t.risk || '–')}</b><span>Risque</span></div></div>
+        <div class="tp-sec">Contexte</div>${row('Date', esc(t.date))}${row('Session', esc(t.session))}${row('Durée', t.duration ? esc(t.duration) + (t.entryTime ? ` <span class="muted">(${esc(t.entryTime)} → ${esc(t.exitTime || '?')})</span>` : '') : '')}${row('Killzone', t.killzone === 'Yes' ? '✓ ' + esc(t.killzoneName || '') : t.killzone === 'No' ? '✗ hors killzone' : '')}
+        <div class="tp-sec">Exécution</div>${row('Setup', esc(t.setup))}${row('Entrée', esc(t.entry))}${row('POI d\'exécution', esc(t.execPoi))}${row('Stop loss', esc(t.sl) + (isSet(t.slPips) ? ` · ${t.slPips} pips` : ''))}${row('Take profit', esc(t.tp))}
+        <div class="tp-sec">Performance</div>${row('R prévu', isSet(t.plannedR) ? sgn(+t.plannedR) + ' R' : '')}${row('Résultat', S.filled(t.ret) ? `<span class="${cls(R)}">${sgn(R)} R</span>` : '')}${row('Type de sortie', esc(t.exitType))}${row('MAE / MFE', isSet(t.mae) || isSet(t.mfe) ? `${isSet(t.mae) ? num(t.mae) : '–'} / ${isSet(t.mfe) ? num(t.mfe) : '–'} R` : (isSet(t.maePips) ? `${t.maePips} / ${t.mfePips || '–'} pips` : ''))}
+      </div>
+      <div class="jc-tr">
+        <div class="tp-sec">Snapshot du trade</div>
+        ${shots.length ? `<div class="jc-shots">${shots.slice(0, 4).map(u => { const img = S.imageUrl ? S.imageUrl(u) : null; return img ? `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(img)}" alt="Capture du trade #${t.n}" loading="lazy"></a>` : `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">Ouvrir la capture ↗</a>`; }).join('')}</div>` : '<div class="jc-noshot muted small">Aucune capture pour ce trade. Ajoute un lien TradingView dans la fiche.</div>'}
+        <div class="tp-sec">Revue et réflexion</div>
+        <div class="jc-rev"><div><span>Plan suivi</span><div>${chip(['Yes', 'No'], t.planFollow)}</div></div><div><span>Qualité du setup</span><div>${chip(['A+', 'A', 'B', 'C'], t._grade)}</div></div>
+          <div><span>Gestion</span><b>${esc(t.management || '–')}</b></div><div><span>Erreurs</span><b>${esc((t.mistakeTags || []).join(', ') || t.mistakes || 'Aucune')}</b></div>
+          <div><span>Émotion entrée</span><b>${esc(emo('Entry'))}</b></div><div><span>Émotion sortie</span><b>${esc(emo('Exit'))}</b></div></div>
+        ${t.notes ? `<div class="jc-note">${esc(t.notes)}</div>` : ''}
+        <div class="actions"><button class="btn" data-open="${t.n}">Ouvrir la fiche</button><button class="btn primary" data-edit="${t.n}">Modifier</button></div>
+      </div></div>`;
+  }
+  function renderJournalCal() {
+    const all = enriched().filter(t => t.date);
+    if (!JCAL.month) { const last = all.map(t => t.date).sort().pop(), cur = todayISO().slice(0, 7); JCAL.month = all.some(t => t.date.slice(0, 7) === cur) || !last ? cur : last.slice(0, 7); }
+    const m = JCAL.month, first = m + '-01', dow = (new Date(first + 'T00:00:00Z').getUTCDay() + 6) % 7;
+    const dim = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate(), weeks = Math.ceil((dow + dim) / 7), start = addDaysISO(first, -dow), today = todayISO();
+    const byDay = {}; all.forEach(t => { (byDay[t.date] = byDay[t.date] || []).push(t); });
+    const sumR = a => a.reduce((s, t) => s + (S.filled(t.ret) ? +t.ret : 0), 0);
+    const mts = all.filter(t => t.date.slice(0, 7) === m), mLabel = new Date(first + 'T00:00:00Z').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const an = monthAnalysis(mts, mLabel.charAt(0).toUpperCase() + mLabel.slice(1));
+    let grid = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim', 'Semaine'].map(d => `<div class="nc-wd">${d}</div>`).join('');
+    for (let w = 0; w < weeks; w++) {
+      let wts = [];
+      for (let k = 0; k < 7; k++) {
+        const d = addDaysISO(start, w * 7 + k), a = byDay[d] || [], r = sumR(a); wts = wts.concat(a);
+        grid += `<button class="jc-cell ${d.slice(0, 7) !== m ? 'out' : ''} ${a.length ? (r > 0.001 ? 'win' : r < -0.001 ? 'loss' : 'be') : ''} ${d === JCAL.day ? 'sel' : ''} ${d === today ? 'today' : ''}" data-jday="${d}">
+          <span class="jc-d">${+d.slice(8)}</span>${a.length ? `<span class="jc-n">${a.length} trade${a.length > 1 ? 's' : ''}</span><span class="jc-r">${sgn(r)} R</span>` : ''}</button>`;
+      }
+      const wr = sumR(wts); grid += `<div class="jc-week ${wts.length ? (wr > 0.001 ? 'pos' : wr < -0.001 ? 'neg' : '') : ''}">${wts.length ? `<b>${sgn(wr)} R</b><span>${wts.length} trade${wts.length > 1 ? 's' : ''}</span>` : '<span class="muted">–</span>'}</div>`;
+    }
+    const dts = JCAL.day ? (byDay[JCAL.day] || []).slice().sort((a, b) => String(a.entryTime || '').localeCompare(String(b.entryTime || '')) || a.n - b.n) : [];
+    const selT = JCAL.n !== null ? all.find(t => t.n === JCAL.n) : null;
+    const msm = S.summary(mts);
+    return `
+      <details class="jc-analysis card"${window.innerWidth >= 700 ? ' open' : ''}><summary class="jc-ahead">📊 Analyse du mois <span class="muted small">(calculée à partir de tes trades)</span></summary><p class="small">${esc(an.head)}</p>
+        <div class="jc-cols"><div class="jc-good"><b>✓ Ce qui a marché</b><ul>${an.good.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div><div class="jc-bad"><b>✗ Ce qui n'a pas marché</b><ul>${an.bad.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div></div></details>
+      <div class="card jc-cal">
+        <div class="nc-calhead"><button class="btn sm" id="jc-pm" aria-label="Mois précédent">‹</button><button class="btn sm" id="jc-nm" aria-label="Mois suivant">›</button><h2>${esc(mLabel)}</h2>
+          <span class="jc-msum"><b class="${cls(msm.net)}">${sgn(msm.net)} R</b> · ${mts.length} trades · WR ${pct(msm.winRate)}</span><button class="btn sm" id="jc-today">Ce mois</button></div>
+        <div class="jc-grid">${grid}</div>
+      </div>
+      ${JCAL.day ? `<div class="card jc-daylist"><h2 style="margin-top:0">${esc(new Date(JCAL.day + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }))} · ${dts.length ? `<span class="${cls(sumR(dts))}">${sgn(sumR(dts))} R</span>` : 'aucun trade'}</h2>
+        ${dts.map(t => `<button class="jc-tbtn ${t.n === JCAL.n ? 'on' : ''}" data-jn="${t.n}"><span>#${t.n}</span><span>${esc(t.entryTime || '')}</span><b>${esc(t.instrument || '')}</b><span>${esc(t.direction || '')}</span><span>${esc(t.setup || t.entry || '')}</span><b class="${cls(t.ret)}">${sgn(t.ret)} R</b></button>`).join('')}</div>` : '<p class="muted small">Clique sur un jour pour voir ses trades.</p>'}
+      ${selT ? tradePanelHTML(selT) : ''}`;
+  }
+  function wireJournalCal() {
+    const go = () => renderJournal();
+    $('#jc-pm').onclick = () => { JCAL.month = addMonth(JCAL.month, -1); JCAL.day = ''; JCAL.n = null; go(); };
+    $('#jc-nm').onclick = () => { JCAL.month = addMonth(JCAL.month, 1); JCAL.day = ''; JCAL.n = null; go(); };
+    $('#jc-today').onclick = () => { JCAL.month = todayISO().slice(0, 7); JCAL.day = ''; JCAL.n = null; go(); };
+    document.querySelectorAll('[data-jday]').forEach(b => b.onclick = () => { JCAL.day = b.dataset.jday; const a = enriched().filter(t => t.date === JCAL.day); JCAL.n = a.length === 1 ? a[0].n : null; if (JCAL.day.slice(0, 7) !== JCAL.month) JCAL.month = JCAL.day.slice(0, 7); go(); setTimeout(() => { const el = document.querySelector('.jc-daylist'); if (el && window.innerWidth < 900) el.scrollIntoView({ behavior: 'smooth' }); }, 50); });
+    document.querySelectorAll('[data-jn]').forEach(b => b.onclick = () => { JCAL.n = +b.dataset.jn; go(); setTimeout(() => { const el = document.querySelector('.jc-trade'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); });
+    document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTrade(+b.dataset.open));
+    document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editTrade(+b.dataset.edit));
+  }
+  function journalViewBar() {
+    const v = getJView();
+    return `<div class="jv-bar" role="tablist"><button class="${v === 'cal' ? 'on' : ''}" data-jv="cal" role="tab">📅 Calendrier</button><button class="${v === 'list' ? 'on' : ''}" data-jv="list" role="tab">☰ Liste</button></div>`;
+  }
+  function getJView() { try { return localStorage.getItem(JKEY) || 'cal'; } catch (e) { return 'cal'; } }
+  function wireJView() { document.querySelectorAll('[data-jv]').forEach(b => b.onclick = () => { try { localStorage.setItem(JKEY, b.dataset.jv); } catch (e) {} renderJournal(); }); }
+  function renderJournal() {
+    if (getJView() === 'list') { renderJournalList(); $('#main').insertAdjacentHTML('afterbegin', journalViewBar()); wireJView(); return; }
+    $('#main').innerHTML = `${guardrailBanner()}${journalViewBar()}<h1>Journal</h1>${renderJournalCal()}`;
+    wireJView(); wireJournalCal();
+  }
+
+  /* ---------- TRADING PLAN : présentation « plan card » ---------- */
+  const SEC_KIND = title => { const t = String(title).toLowerCase(); return /pre.?market|routine|avant/.test(t) ? ['☀️', 'check'] : /chart|analy|process/.test(t) ? ['📊', 'num'] : /entry|entr[ée]e/.test(t) ? ['✅', 'check'] : /management|gestion/.test(t) ? ['🧭', 'text'] : /exit|sortie/.test(t) ? ['🏁', 'check'] : ['📌', 'num']; };
+  function planStats(plan) {
+    const ts = enriched().filter(t => t.planId === plan.id || (!t.planId && t.planName === plan.name)).filter(t => S.filled(t.ret));
+    const r = rets(ts), pf = ts.filter(t => t.planFollow);
+    return { n: ts.length, wr: r.length ? r.filter(x => x > 0).length / r.length : null, net: r.reduce((a, b) => a + b, 0), comp: pf.length ? pf.filter(t => t.planFollow === 'Yes').length / pf.length : null, e: meanOf(r) };
+  }
+  function planCardHTML(plan, mini) {
+    const secs = (plan.sections || []).map(sec => {
+      const [ic, kind] = SEC_KIND(sec.title), items = (sec.items || []).filter(Boolean).slice(0, mini ? 4 : 999);
+      return `<div class="pc-sec"><div class="pc-h">${ic} ${esc(sec.title)}</div>${kind === 'text' && !mini ? `<div class="pc-text">${items.map(esc).join('<br>')}</div>` :
+        `<ol class="pc-list ${kind}">${items.map((x, i) => `<li><span class="pc-mark">${kind === 'num' ? i + 1 : '✓'}</span>${esc(x)}</li>`).join('')}</ol>`}</div>`;
+    });
+    const imgs = (plan.images || []).filter(Boolean);
+    return `<div class="pc ${mini ? 'mini' : ''}"><div class="pc-title"><span class="pc-dot"></span>${esc(plan.name)} ${plan.subtitle ? `<span class="muted small">${esc(plan.subtitle)}</span>` : ''}</div>
+      <div class="pc-cols"><div>${secs.filter((_, i) => i % 2 === 0 || mini).join('')}</div>${mini ? '' : `<div>
+        ${imgs.length ? `<div class="pc-sec"><div class="pc-h">📷 Setup</div><div class="pc-imgs">${imgs.map(u => { const img = S.imageUrl ? S.imageUrl(u) : null; return img ? `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(img)}" alt="Exemple de setup" loading="lazy"></a>` : `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(trunc(u, 40))}</a>`; }).join('')}</div></div>` : ''}
+        ${secs.filter((_, i) => i % 2 === 1).join('')}
+        ${(plan.notes || []).filter(Boolean).length ? `<div class="pc-sec"><div class="pc-h">✍️ Trading notes</div><div class="pc-text">${plan.notes.filter(Boolean).map(esc).join('<br>')}</div></div>` : ''}</div>`}</div></div>`;
+  }
+  function planReviewed(plan) { const r = (plan.reviews || []).slice(-1)[0]; return r ? new Date(r) : null; }
+  function tpViewHTML(plan, planBar) {
+    const st = planStats(plan), rv = planReviewed(plan), today = todayISO();
+    const rvTxt = rv ? (tzParts(rv.getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC').date === today ? `✓ Revu aujourd'hui à ${String(rv.getHours()).padStart(2, '0')}:${String(rv.getMinutes()).padStart(2, '0')}` : `Dernière revue : ${fmtStamp(rv.toISOString())}`) : 'Pas encore revu';
+    return `<h1>📝 Trading Plan</h1>${planBar}
+      <div class="pc-wrap card">
+        <div class="pc-top"><button class="btn sm" id="tp-preset">🗂 Choisir un plan</button><button class="btn sm" id="tp-edit">✏️ Modifier le plan</button></div>
+        ${planCardHTML(plan)}
+        <div class="pc-foot"><span class="muted small" id="tp-rvtxt">${esc(rvTxt)}</span><button class="btn primary pc-review ${rv && rv.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10) ? 'done' : ''}" id="tp-review">✓ Marquer comme revu</button></div>
+      </div>
+      <div class="pc-stats card"><div class="pc-sh">Statistiques du plan <span class="muted small" title="Trades enregistrés avec ce plan dans « Plan suivi »">ⓘ</span></div>
+        <div class="pc-sg"><div><b>${st.n}</b><span>Trades pris</span></div><div><b>${st.wr === null ? '–' : pct(st.wr)}</b><span>Win rate</span></div><div><b class="${cls(st.net)}">${sgn(st.net)} R</b><span>Net R</span></div><div><b>${st.comp === null ? '–' : pct(st.comp)}</b><span>Respect du plan</span></div></div>
+        ${st.n && st.n < 20 ? '<p class="muted small">Moins de 20 trades avec ce plan : statistiques indicatives.</p>' : ''}
+        <p class="muted small">${(plan.reviews || []).length} revue(s) du plan · ${(plan.reviews || []).filter(x => x.slice(0, 10) >= addDaysISO(today, -6)).length} sur les 7 derniers jours</p></div>`;
+  }
+  function wireTpView(plan) {
+    $('#tp-review').onclick = async () => { plan.reviews = (plan.reviews || []).concat([new Date().toISOString()]).slice(-200); if (await save('Plan marqué comme revu ✓')) renderTradingPlan(); };
+    $('#tp-preset').onclick = () => {
+      const pd = plansData(), ov = document.createElement('div'); ov.className = 'nc-overlay';
+      ov.innerHTML = `<div class="nc-modal card pc-preset" role="dialog" aria-label="Choisir un plan"><div class="nc-dethead"><h3>Choisir un plan</h3><button class="btn sm" id="pp-x" aria-label="Fermer">×</button></div>
+        <div class="pp-grid">${pd.plans.map(p => `<button class="pp-card ${p.id === pd.activeId ? 'on' : ''}" data-pp="${p.id}">${planCardHTML(p, true)}</button>`).join('')}</div></div>`;
+      document.body.appendChild(ov);
+      const close = () => ov.remove();
+      ov.querySelector('#pp-x').onclick = close; ov.onclick = e => { if (e.target === ov) close(); };
+      ov.querySelectorAll('[data-pp]').forEach(b => b.onclick = async () => { DB.activePlanId = b.dataset.pp; DB.tradingPlan = activePlan(); close(); renderTradingPlan._editing = false; await save('Plan actif : ' + activePlan().name); renderTradingPlan(); });
+    };
+  }
+
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {
@@ -3098,12 +3444,12 @@
   }
 
   /* ---------- routage ---------- */
-  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'setups', 'bvl', 'data'];
+  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'setups', 'sanctuary', 'bvl', 'data'];
   function render() {
     hideNews(); hideTrading(); updateStatusBar();
     $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
-    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, setups: renderSetups, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
+    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, setups: renderSetups, sanctuary: renderSanctuary, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
   }
   function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = VIEWS.includes(v) ? v : 'dashboard'; render(); }
   window.addEventListener('hashchange', route);

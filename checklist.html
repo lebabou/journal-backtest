@@ -8,6 +8,7 @@
 <title>Trading Checklist</title>
 <link rel="manifest" href="manifest-checklist.json">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✅</text></svg>">
+<script>try{var _t=localStorage.getItem('journal_theme_v1');if(_t&&_t!=='auto')document.documentElement.setAttribute('data-theme',_t);}catch(e){}</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0f1318;--panel:#1a1f27;--line:#2a2f3a;--text:#e4e4e7;--muted:#71717a;--accent:#3b82f6;--green:#22c55e;--red:#ef4444}
@@ -41,6 +42,8 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 .item-note:focus{outline:none;border-color:var(--accent)}
 .item-note::placeholder{color:var(--muted)}
 .item-wrap.done .item-note{text-decoration:none;color:var(--text)}
+:root[data-theme="light"]{--bg:#f7f5fd;--panel:#fff;--line:#e7e2f6;--text:#1e1b2e;--muted:#6f6a87;--accent:#7c5cff;--green:#16a362;--red:#e5484d}
+@media (prefers-color-scheme:light){:root:not([data-theme]){--bg:#f7f5fd;--panel:#fff;--line:#e7e2f6;--text:#1e1b2e;--muted:#6f6a87;--accent:#7c5cff;--green:#16a362;--red:#e5484d}}
 </style>
 </head>
 <body>
