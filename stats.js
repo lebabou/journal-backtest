@@ -2,8 +2,53 @@
 (function (root) {
   const YN = v => v === 'Yes' ? 1 : 0;
   const filled = v => v !== undefined && v !== null && v !== '';
-  const T95 = [0,12.706,4.303,3.182,2.776,2.571,2.447,2.365,2.306,2.262,2.228,2.201,2.179,2.160,2.145,2.131,2.120,2.110,2.101,2.093,2.086,2.080,2.074,2.069,2.064,2.060,2.056,2.052,2.048,2.045,2.042];
-  const tcrit = df => df < 1 ? NaN : df <= 30 ? T95[df] : df <= 60 ? 2.0 : 1.96;
+  /* ---- distribution de Student (loi bêta incomplète régularisée) ---- */
+  function lgamma(x) {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+    let y = x, t = x + 5.5; t -= (x + 0.5) * Math.log(t); let ser = 1.000000000190015;
+    for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+    return -t + Math.log(2.5066282746310005 * ser / x);
+  }
+  function betacf(a, b, x) {
+    const FPMIN = 1e-300; let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN; d = 1 / d; let h = d;
+    for (let m = 1; m <= 300; m++) {
+      const m2 = 2 * m; let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN; c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN; d = 1 / d; h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN; c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN; d = 1 / d;
+      const del = d * c; h *= del; if (Math.abs(del - 1) < 3e-15) break;
+    }
+    return h;
+  }
+  function ibeta(x, a, b) {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;
+  }
+  const tPvalue = (t, df) => df < 1 || !isFinite(t) ? (isFinite(t) ? NaN : 0) : ibeta(df / (df + t * t), df / 2, 0.5);   // bilatérale
+  function tcrit(df) {                       // quantile 97,5 % de Student, par dichotomie
+    if (df < 1) return NaN; let lo = 0, hi = 200;
+    for (let i = 0; i < 80; i++) { const mid = (lo + hi) / 2; if (tPvalue(mid, df) > 0.05) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  }
+  /* test des signes exact (bilatéral) : robuste aux distributions asymétriques ; les écarts nuls sont écartés */
+  function signTest(d) {
+    const pos = d.filter(x => x > 0).length, neg = d.filter(x => x < 0).length, m = pos + neg;
+    if (!m) return { p: 1, pos, neg, m };
+    const k = Math.min(pos, neg); let tail = 0;
+    for (let i = 0; i <= k; i++) tail += Math.exp(lgamma(m + 1) - lgamma(i + 1) - lgamma(m - i + 1) - m * Math.LN2);
+    return { p: Math.min(1, 2 * tail), pos, neg, m };
+  }
+  function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  /* bootstrap percentile de la moyenne (graine fixe => résultat reproductible) */
+  function bootstrapMean(d, B, seed) {
+    if (d.length < 2) return { lo: null, hi: null, pPos: null };
+    B = B || 10000; const rnd = mulberry32(seed || 20240601), n = d.length, ms = new Float64Array(B);
+    for (let b = 0; b < B; b++) { let s = 0; for (let i = 0; i < n; i++) s += d[Math.floor(rnd() * n)]; ms[b] = s / n; }
+    ms.sort(); let pos = 0; for (let b = 0; b < B; b++) if (ms[b] > 0) pos++;
+    return { lo: ms[Math.floor(0.025 * B)], hi: ms[Math.floor(0.975 * B) - 1], pPos: pos / B };
+  }
 
   const result = t => !filled(t.ret) ? '' : t.ret > 0 ? 'Win' : t.ret < 0 ? 'Loss' : 'Breakeven';
   const criteria = t => [t.bias, t.poi, t.killzone, t.sweep];   // « RR asymétrique » retiré (V3)
@@ -109,6 +154,32 @@
     return null;
   }
 
-  const api = { filled, result, setupScore, grade, discipline, enrich, summary, groupBy, histogram, period, shiftPeriod, inPeriod, dayName, imageUrl, wilson, addDays };
+  function maxConsecLosses(rs) { let m = 0, c = 0; rs.forEach(r => { if (r < 0) { c++; m = Math.max(m, c); } else c = 0; }); return m; }
+  const hasAgg = t => t.agg && filled(t.agg.ret) && filled(t.ret);
+  const pairedRows = trades => trades.filter(hasAgg).sort((a, b) => a.n - b.n);
+  const isNoEntry = e => !e || /^no entry$/i.test(String(e).trim());
+  const taken = t => !isNoEntry(t.entry) && t.risk !== 0;
+
+  /* comparaison appariée sur les mêmes trades : Δ = Return aggressive − Return conservative */
+  function comparePaired(rows) {
+    const n = rows.length, C = rows.map(t => Number(t.ret)), A = rows.map(t => Number(t.agg.ret)), D = A.map((a, i) => a - C[i]);
+    const sC = summary(rows.map(t => ({ n: t.n, ret: t.ret, planFollow: t.planFollow }))), sA = summary(rows.map(t => ({ n: t.n, ret: t.agg.ret })));
+    const mean = n ? D.reduce((a, b) => a + b, 0) / n : null;
+    const sd = n > 1 ? Math.sqrt(D.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : null;
+    const se = sd !== null ? sd / Math.sqrt(n) : null, df = n - 1;
+    const t = se ? mean / se : null, p = t !== null ? tPvalue(t, df) : null, tc = n > 1 ? tcrit(df) : null;
+    const sign = signTest(D), boot = bootstrapMean(D);
+    let cc = 0, ca = 0;
+    return {
+      n, rows, C, A, D, cons: sC, agg: sA, mean, sd, se, df, t, p, dz: sd ? mean / sd : null,
+      ci: se !== null ? [mean - tc * se, mean + tc * se] : [null, null], pSign: sign.p, signPos: sign.pos, signNeg: sign.neg, tie: n - sign.m, boot,
+      mde: se !== null ? 2.8016 * se : null,                                   // écart minimal détectable (α 5 %, puissance 80 %)
+      nNeeded: sd && mean ? Math.ceil((2.8016 * sd / Math.abs(mean)) ** 2) : null,
+      lossStreakC: maxConsecLosses(C), lossStreakA: maxConsecLosses(A),
+      cumC: C.map(r => cc += r), cumA: A.map(r => ca += r),
+    };
+  }
+
+  const api = { tPvalue, tcrit, signTest, bootstrapMean, ibeta, comparePaired, pairedRows, hasAgg, taken, isNoEntry, maxConsecLosses, filled, result, setupScore, grade, discipline, enrich, summary, groupBy, histogram, period, shiftPeriod, inPeriod, dayName, imageUrl, wilson, addDays };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Stats = api;
 })(typeof window !== 'undefined' ? window : globalThis);

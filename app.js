@@ -1,4 +1,4 @@
-/* Journal de trading – interface. Données : GET/PUT /api/db (journal.json). */
+/* Journal de backtest – interface. Données : GET/PUT /api/db (journal.json). */
 (function () {
   'use strict';
   if (window.__OAUTH_FRAME__) return;
@@ -15,18 +15,18 @@
 
   let DB = null, view = 'dashboard';
   const ui = {
-    dash: { from: '', to: '', instrument: '', session: '', window: 20 },
-    jr: { q: '', instrument: '', session: '', result: '', direction: '', entry: '', from: '', to: '', sort: 'n', desc: true },
+    dash: { from: '', to: '', instrument: '', session: '', window: 20, excl: false },
+    jr: { q: '', instrument: '', session: '', result: '', direction: '', entry: '', from: '', to: '', aggOnly: false, sort: 'n', desc: true },
     rev: { type: 'weekly', start: null },
   };
 
   /* ---------- persistance ---------- */
   function banner(msg) { const b = $('#banner'); b.hidden = !msg; b.textContent = msg || ''; }
   function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, ms || 2200); }
-  var FILE_NAME = 'journal-trading.json';
+  var FILE_NAME = 'journal-backtest.json';
   var EMPTY_JOURNAL = {
-  meta: { name: 'Journal 21 D Challenge', version: 2 },
-  lists: { instruments: ['EURUSD','GBPUSD','GBPJPY','USDJPY','XAUUSD','AUDUSD','USDCHF','NZDUSD'], sessions: ['London','NY','London Close','MMM','Asian','Out of Session'], entries: ['SZ EM','DZ EM','FZ EM','Aggressive'], sl: ['Structural Swing','FZ Structure','SZ Structure'], tp: ['SZ','DZ','Target','Structural Swing','Imbalance','Fixed','FVG','MTF DZ','Next structure'], styles: ['Scalping','Intraday','Swing'] },
+  meta: { name: 'Journal de Backtest \u2013 Market Mechanics', version: 2 },
+  lists: { instruments: ['EURUSD','GBPUSD','GBPJPY','USDJPY','XAUUSD','AUDUSD','USDCHF','NZDUSD'], sessions: ['London','NY','London Close','MMM','Asian','Out of Session'], entries: ['SZ EM','DZ EM','FZ EM','No Entry'], aggEntries: ['Engulfing','Piercing','Tweezer','Strar','No Entry','Agressive'], sl: ['Structural Swing','FZ Structure','SZ Structure','Candle + 1p','Candle + 2p'], tp: ['SZ','DZ','Target','Structural Swing','Imbalance','Fixed','FVG','MTF DZ','Next structure','Structure','Swing Low','Liquidity'] },
   trades: [], reviews: [],
   tradingPlan: { sections: [{ title: 'Pre-market routine', items: ['Economical calendar','Review trade plan','Analyse chart','Meditate'] }, { title: 'Chart processing', items: ['Mark HTF 4h range + premium and discount','Mark liquidity (PDH/L, EQH/L)','Mark MTF 1H, 15mn Structure and POI','LTF when hit MTF POI','Build a narrative: continuation vs pullback vs reversal','Take profit (structure or imbalance)','Define invalidation'] }, { title: 'Entry criteria', items: ['Bias alignement','High probability POI','During Killzone','LQ sweep + Market shift','Asymmetrical RR'] }, { title: 'Trade management', items: ['Predifine risk before entry','Set and forget','If invalidation hits, you are done. Exit and reassess, no ONE MORE TRADE TO MAKE IT BACK'] }, { title: 'Exit criteria', items: ['TP next structure or imbalance (LTF)','SL = zone + Buffer 1,5 pip pour SND, 2,5 pips pour FZ'] }], notes: ['Bias is a plan + invalidation not a prediction','If you can\'t say your bias in one sentence, you don\'t have one','If invalidation hits, reset. No coping, no revenge TRADE','You don\'t build trust in your system with affirmations. You build it with data','Conviction \u2192 confidence \u2192 comp\u00e9tence \u2192 consistency'] },
   notebook: {"folders": ["Ideas", "Drafts", "Playbook", "Mindset"], "notes": [{"id": "seed1", "title": "2026 goals", "icon": "\ud83c\udfaf", "folder": "Mindset", "pinned": true, "body": "# Objectifs 2026\n\n- 200 trades A+ minimum\n- Max daily loss: 2R\n- Weekly review tous les dimanches\n- Discipline score > 85%\n\n## Process over outcome\n- [ ] Pre-market routine tous les jours\n- [ ] Journal chaque trade dans l'heure\n- [ ] Review hebdo sans exception", "created": "2025-12-08T17:40:26.039255", "updated": "2026-10-04T15:40:26.039255"}, {"id": "seed2", "title": "Pre-Market Thesis", "icon": "\ud83d\udccb", "folder": "Playbook", "pinned": false, "body": "# Pre-Market Thesis Template\n\n## 1. HTF Plan\n- Pre 4H Trend:\n- Mark out HTF POIs (4H):\n- Buy in 4H Discount / Sell in 4H Premium\n- Define 4H POI\n- SBD Zones, Flip Zones, Order Blocks\n\n## 2. LTF Execution\n- 4H POI Mitigation\n- 15m LQ Sweep (V Shape Reaction)\n- Market Shift\n- Set entry limit order on edge of POI\n\n## 3. Invalidation\n- Si structure cass\u00e9e dans le sens oppos\u00e9\n- Si pas de r\u00e9action au POI dans 2 bougies", "created": "2026-03-18T17:40:26.039255", "updated": "2026-09-29T17:40:26.039255"}, {"id": "seed3", "title": "Entry Model", "icon": "\ud83c\udfaf", "folder": "Playbook", "pinned": false, "body": "# Entry Model\n\n## Conditions obligatoires\n- [ ] Bias alignement HTF\n- [ ] High probability POI\n- [ ] Pendant une killzone active\n- [ ] LQ sweep + Market shift\n- [ ] RR asym\u00e9trique (min 1:3)\n\n## Confirmation\n1. Prix atteint le POI\n2. Sweep de liquidit\u00e9 (wick)\n3. Market structure shift sur LTF\n4. Entr\u00e9e sur retest", "created": "2026-04-07T17:40:26.039255", "updated": "2026-09-22T17:40:26.039255"}, {"id": "seed4", "title": "Emotional Mapping", "icon": "\ud83e\udde0", "folder": "Mindset", "pinned": false, "body": "# Emotional Mapping Journal\n\n## Avant le trade\nQue je ressens : \nNiveau de conviction (1-10) : \n\n## Pendant\nEnvie de d\u00e9placer le SL ? \nEnvie de prendre les profits t\u00f4t ? \n\n## Apr\u00e8s\nSatisfait du process ? \nQu'est-ce que je referais diff\u00e9remment ? \n\n---\n**Rappel** : Les \u00e9motions sont des donn\u00e9es, pas des ordres.", "created": "2026-05-07T17:40:26.039255", "updated": "2026-09-14T17:40:26.039255"}, {"id": "seed5", "title": "Process", "icon": "\u2699\ufe0f", "folder": "Ideas", "pinned": false, "body": "Nouvelle r\u00e8gle : \u00e9crire la th\u00e8se avant l'ouverture du march\u00e9, pas d'intraday improvis\u00e9.\n\nSi je n'ai pas \u00e9crit mon plan avant 8h, je ne trade pas aujourd'hui.", "created": "2026-10-02T17:40:26.039255", "updated": "2026-10-04T14:40:26.039255"}]},
@@ -161,9 +161,9 @@
 
   /* ---------- helpers ---------- */
   const list = k => (DB.lists[k] && DB.lists[k].length) ? DB.lists[k] : (DEF_LISTS[k] || []);
-  const uniq = k => [...new Set([...(DB.lists[k] || []), ...DB.trades.map(t => t[{ instruments: 'instrument', sessions: 'session', entries: 'entry', sl: 'sl', tp: 'tp', styles: 'style' }[k]]).filter(Boolean)])];
+  const FIELD = { instruments: t => [t.instrument], sessions: t => [t.session], entries: t => [t.entry], aggEntries: t => [t.agg && t.agg.entry], sl: t => [t.sl, t.agg && t.agg.sl], tp: t => [t.tp, t.agg && t.agg.tp] };
+  const uniq = k => [...new Set([...(DB.lists[k] || []), ...DB.trades.flatMap(FIELD[k] || (() => [])).filter(Boolean)])];
   const opts = (arr, sel, blank) => (blank !== undefined ? `<option value="">${esc(blank)}</option>` : '') + arr.map(v => `<option ${v === sel ? 'selected' : ''} value="${esc(v)}">${esc(v)}</option>`).join('');
-  const val = v => v === null || v === undefined ? '' : v;
   const enriched = () => S.enrich(DB.trades);
   const byN = n => enriched().find(t => t.n === n);
 
@@ -211,7 +211,7 @@
       `</tbody></table></div></div>`;
   }
 
-  /* ---------- DASHBOARD ---------- */
+  /* ---------- DASHBOARD (performance de l'entrée CONSERVATIVE = colonnes Return d'origine) ---------- */
 
 
   /* ---------- STATUS BAR (guardrails + news alerts) ---------- */
@@ -325,7 +325,7 @@
   }
   function statusPills() {
     var g = getGuardrails();
-    if (!g.enabled) return focusPills() + reviewPills() + e20Pill();
+    if (!g.enabled) return focusPills() + newsBlockPill() + reviewPills() + e20Pill();
     var st = todayStats();
     var kz = g.killzones || {};
     var activeKz = (kz.sessions || []).filter(function(s) { return s.active; });
@@ -353,7 +353,7 @@
 
     var newsAlert = document.getElementById('news-alert-pill');
     if (newsAlert) html += newsAlert.outerHTML;
-    return focusPills() + reviewPills() + e20Pill() + html;
+    return focusPills() + newsBlockPill() + reviewPills() + e20Pill() + html;
   }
 
   /* ---------- NEWS ALERTS (10mn before High Impact) ---------- */
@@ -373,9 +373,8 @@
     var apiUrl = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
     var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(apiUrl);
 
-    fetch(apiUrl).catch(function() { return fetch(proxyUrl); })
-      .then(function(r) { return r.json(); })
-      .then(function(events) {
+    loadNewsEvents()
+      .then(function(events) { updateStatusBar();
         if (!Array.isArray(events)) return;
         var now = Date.now();
         var ALERT_BEFORE = 10 * 60 * 1000; // 10 minutes
@@ -521,7 +520,7 @@
     var g = getGuardrails();
     if (!g.enabled || !g.killzones || !g.killzones.enabled) return null;
     var byTime = killzoneAt(time);
-    if (byTime) return byTime.inKz ? null : '\u23f0 Heure d\u2019entr\u00e9e ' + time + ' en dehors des killzones actives (' + (g.killzones.sessions || []).filter(function(s) { return s.active; }).map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + ')';
+    if (byTime) return byTime.inKz ? null : 'Heure d\u2019entr\u00e9e ' + time + ' en dehors des killzones actives (' + (g.killzones.sessions || []).filter(function(s) { return s.active; }).map(function(s) { return s.name + ' ' + s.from + '-' + s.to; }).join(', ') + ')';
     var allKz = g.killzones.sessions || [];
     var activeSessions = allKz.filter(function(s) { return s.active; });
     if (!activeSessions.length) return null;
@@ -761,10 +760,10 @@
 
   function renderDashboard() {
     const f = ui.dash;
-    let all = enriched();
-    let ts = all.filter(t => (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) && (!f.instrument || t.instrument === f.instrument) && (!f.session || t.session === f.session));
-    // R cumulé recalculé sur la sélection filtrée
-    const sel = S.enrich(ts.map(t => ({ ...t })));
+    const all = enriched();
+    const skipped = all.filter(t => !S.taken(t)).length;
+    const ts = all.filter(t => (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) && (!f.instrument || t.instrument === f.instrument) && (!f.session || t.session === f.session) && (!f.excl || S.taken(t)));
+    const sel = S.enrich(ts.map(t => ({ ...t })));       // R cumulé recalculé sur la sélection
     const sm = S.summary(ts), win = S.summary(sel.slice(-Math.max(1, +f.window || 20)));
     const kpi = (l, v, s, c) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c || ''}">${v}</div><div class="s">${s || ''}</div></div>`;
     const ci = (a, d = 2) => a[0] === null ? '' : `IC95 % [${num(a[0], d)} ; ${num(a[1], d)}]`;
@@ -777,30 +776,30 @@
       kpi('Max drawdown', num(sm.maxDD) + ' R', ''),
       kpi('Gain moyen', sgn(sm.avgWin), 'Perte moy. ' + sgn(sm.avgLoss)),
       kpi('Écart-type des R', num(sm.sd, 3), 'Sharpe-like ' + num(sm.sharpe, 3)),
-      kpi('Plan-follow', pct(sm.planRate), `${sm.ruleBreaks} trade(s) hors règles`),
+      kpi('Plan-follow', pct(sm.planRate), `${sm.ruleBreaks} trade(s) hors plan`),
       kpi('FOMO / impulsion', sm.fomo, sm.n ? pct(sm.fomo / sm.n) + ' des trades' : ''),
-      kpi('Meilleur trade', sgn(sm.best) + ' R', '', 'pos'),
-      kpi('Pire trade', sgn(sm.worst) + ' R', '', 'neg'),
+      kpi('Meilleur trade', sgn(sm.best) + ' R', '', 'pos'), kpi('Pire trade', sgn(sm.worst) + ' R', '', 'neg'),
     ].join('');
     const eq = [[0, 0], ...sel.filter(t => t._cum !== null).map((t, i) => [i + 1, t._cum])];
     const dd = [[0, 0], ...sel.filter(t => t._dd !== null).map((t, i) => [i + 1, -t._dd])];
     const roll = sel.filter(t => t._roll !== null).map((t, i) => [i + 1, t._roll * 100]);
     const rs = ts.filter(t => S.filled(t.ret)).map(t => Number(t.ret));
-    const g = (fn) => S.groupBy(ts, fn);
-    const instruments = uniq('instruments'), sessions = uniq('sessions');
+    const g = fn => S.groupBy(ts, fn);
     $('#main').innerHTML = `
-      <h1>Dashboard</h1>
+      <h1>Dashboard <span class="muted small">entrée conservative</span></h1>
       <div class="bar">
         <label>Du<input type="date" id="d-from" value="${esc(f.from)}"></label>
         <label>Au<input type="date" id="d-to" value="${esc(f.to)}"></label>
-        <label>Instrument<select id="d-inst">${opts(instruments, f.instrument, 'Tous')}</select></label>
-        <label>Session<select id="d-sess">${opts(sessions, f.session, 'Toutes')}</select></label>
+        <label>Instrument<select id="d-inst">${opts(uniq('instruments'), f.instrument, 'Tous')}</select></label>
+        <label>Session<select id="d-sess">${opts(uniq('sessions'), f.session, 'Toutes')}</select></label>
         <label>Fenêtre glissante (trades)<input type="number" min="1" id="d-win" value="${f.window}" style="width:90px"></label>
+        <label style="flex-direction:row;align-items:center;gap:6px;padding-bottom:7px"><input type="checkbox" id="d-excl" ${f.excl ? 'checked' : ''}> Exclure les trades sans entrée</label>
         <button class="btn" id="d-reset">Réinitialiser</button>
       </div>
       ${guardrailBanner()}
       <div class="kpis">${cards(sm)}</div>
-      ${sm.n < 30 ? `<div class="note">Échantillon de ${sm.n} trade(s) : les intervalles de confiance sont larges${sm.n ? ` (l'espérance réelle pourrait aussi bien se situer entre ${num(sm.expCI[0])} R et ${num(sm.expCI[1])} R)` : ''}. En dessous de ~30 trades, et surtout pour les sous-groupes de moins de 10 (lignes grisées), les écarts observés ne sont pas statistiquement fiables.</div>` : ''}
+      ${skipped ? `<div class="note"><b>${skipped} trade(s) sans entrée</b> (« No Entry », entrée vide ou risque = 0) ont un Return de 0 et sont comptés comme Breakeven, comme dans votre Excel. Ils réduisent mécaniquement le win rate et l'espérance : cochez « Exclure les trades sans entrée » pour mesurer uniquement les trades réellement pris.</div>` : ''}
+      ${sm.n < 30 ? `<div class="note">Échantillon de ${sm.n} trade(s) : intervalles de confiance larges. Les sous-groupes de moins de 10 trades (lignes grisées) ne sont pas statistiquement fiables.</div>` : ''}
       ${disciplineHTML(sel, '')}
       <h2>Fenêtre glissante : ${Math.min(win.n, +f.window || 20)} derniers trades de la sélection</h2>
       <div class="kpis">${cards(win)}</div>
@@ -816,25 +815,27 @@
         ${groupTable('Instrument', g(t => t.instrument))}${groupTable('Session', g(t => t.session))}
         ${groupTable('Jour', g(t => S.dayName(t.date)))}${groupTable('Direction', g(t => t.direction))}
         ${groupTable('Modèle d\'entrée', g(t => t.entry))}${groupTable('Stop loss', g(t => t.sl))}
-        ${groupTable('Take profit', g(t => t.tp))}${groupTable('Style', g(t => t.style))}
-        ${groupTable('Grade du setup', g(t => t._grade))}${groupTable('Score du setup (/4)', g(t => t._score === null ? '' : t._score + '/4'))}
-        ${groupTable('Plan-follow', g(t => t.planFollow))}${groupTable('FOMO / impulsion', g(t => t.fomo))}
-        ${groupTable('Score discipline (/3)', g(t => t._disc === null ? '' : t._disc + '/3'))}${groupTable('Gestion du trade', g(t => normMgmt(t.management)))}
-        ${groupTable('Émotion à l\'entrée', g(t => t.emoEntry || t.entryEmotion))}${groupTable('Setup', g(t => t.setup))}
-        ${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Type de sortie', g(t => t.exitType))}
+        ${groupTable('Take profit', g(t => t.tp))}${groupTable('Grade du setup', g(t => t._grade))}
+        ${groupTable('Score du setup (/4)', g(t => t._score === null ? '' : t._score + '/4'))}${groupTable('Plan-follow', g(t => t.planFollow))}
+        ${groupTable('FOMO / impulsion', g(t => t.fomo))}${groupTable('Gestion du trade', g(t => normMgmt(t.management)))}
+        ${groupTable('Setup', g(t => t.setup))}${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Type de sortie', g(t => t.exitType))}
       </div>`;
-    const re = () => { f.from = $('#d-from').value; f.to = $('#d-to').value; f.instrument = $('#d-inst').value; f.session = $('#d-sess').value; f.window = $('#d-win').value; renderDashboard(); };
-    ['#d-from', '#d-to', '#d-inst', '#d-sess', '#d-win'].forEach(s => $(s).addEventListener('change', re));
-    $('#d-reset').onclick = () => { ui.dash = { from: '', to: '', instrument: '', session: '', window: 20 }; renderDashboard(); };
+    const re = () => { f.from = $('#d-from').value; f.to = $('#d-to').value; f.instrument = $('#d-inst').value; f.session = $('#d-sess').value; f.window = $('#d-win').value; f.excl = $('#d-excl').checked; renderDashboard(); };
+    ['#d-from', '#d-to', '#d-inst', '#d-sess', '#d-win', '#d-excl'].forEach(s => $(s).addEventListener('change', re));
+    $('#d-reset').onclick = () => { ui.dash = { from: '', to: '', instrument: '', session: '', window: 20, excl: false }; renderDashboard(); };
   }
 
+
   /* ---------- JOURNAL ---------- */
-  const SORTS = { n: t => t.n, date: t => t.date + String(t.n).padStart(5, '0'), instrument: t => t.instrument, ret: t => t.ret === null ? -1e9 : t.ret, session: t => t.session, entry: t => t.entry };
+  const SORTS = { n: t => t.n, date: t => t.date + String(t.n).padStart(5, '0'), instrument: t => t.instrument, ret: t => t.ret === null ? -1e9 : t.ret,
+    agg: t => t.agg && S.filled(t.agg.ret) ? t.agg.ret : -1e9, session: t => t.session, entry: t => t.entry };
+  const delta = t => S.hasAgg(t) ? t.agg.ret - t.ret : null;
   function renderJournal() {
     const f = ui.jr, q = f.q.toLowerCase();
     let ts = enriched().filter(t => (!f.instrument || t.instrument === f.instrument) && (!f.session || t.session === f.session) && (!f.result || t._result === f.result) &&
-      (!f.direction || t.direction === f.direction) && (!f.entry || t.entry === f.entry) && (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) &&
-      (!q || [t.notes, t.mistakes, t.management, t.instrument, t.setup, t.entry].join(' ').toLowerCase().includes(q)));
+      (!f.direction || t.direction === f.direction) && (!f.entry || t.entry === f.entry) && (!f.incomplete || completeness(t).pct < 100) && (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) &&
+      (!f.aggOnly || S.hasAgg(t)) &&
+      (!q || [t.notes, t.mistakes, t.management, t.instrument, t.entry, t.agg && t.agg.entry].join(' ').toLowerCase().includes(q)));
     const key = SORTS[f.sort] || SORTS.n;
     ts.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0); if (f.desc) ts.reverse();
     const sm = S.summary(ts);
@@ -842,28 +843,31 @@
     const nShots = t => SLOTS.reduce((a, [k]) => a + (t.screens && t.screens[k] ? t.screens[k].length : 0), 0);
     $('#main').innerHTML = `
       ${guardrailBanner()}
-      <h1>Journal <span class="muted small">${ts.length} trade(s) · Net ${sgn(sm.net)} R · win rate ${pct(sm.winRate)}</span></h1>
+      <h1>Journal <span class="muted small">Fiches complètes à ${ts.length ? Math.round(ts.reduce((a, t) => a + completeness(t).pct, 0) / ts.length) : 0} % en moyenne · ${ts.length} trade(s) · Net conservative ${sgn(sm.net)} R · win rate ${pct(sm.winRate)}</span></h1>
       <div class="bar">
         <label>Recherche<input id="j-q" value="${esc(f.q)}" placeholder="notes, erreurs…"></label>
         <label>Instrument<select id="j-inst">${opts(uniq('instruments'), f.instrument, 'Tous')}</select></label>
         <label>Session<select id="j-sess">${opts(uniq('sessions'), f.session, 'Toutes')}</select></label>
         <label>Résultat<select id="j-res">${opts(['Win', 'Loss', 'Breakeven'], f.result, 'Tous')}</select></label>
         <label>Direction<select id="j-dir">${opts(['Long', 'Short'], f.direction, 'Toutes')}</select></label>
-        <label>Entrée<select id="j-ent">${opts(uniq('entries'), f.entry, 'Toutes')}</select></label>
+        <label>Entrée cons.<select id="j-ent">${opts(uniq('entries'), f.entry, 'Toutes')}</select></label>
         <label>Du<input type="date" id="j-from" value="${esc(f.from)}"></label>
         <label>Au<input type="date" id="j-to" value="${esc(f.to)}"></label>
+        <label style="flex-direction:row;align-items:center;gap:6px;padding-bottom:7px"><input type="checkbox" id="j-agg" ${f.aggOnly ? 'checked' : ''}> Avec simulation aggressive</label>
+        <label style="flex-direction:row;align-items:center;gap:6px;padding-bottom:7px"><input type="checkbox" id="j-inc" ${f.incomplete ? 'checked' : ''}> Fiches incomplètes</label>
         <button class="btn" id="j-reset">Réinitialiser</button>
       </div>
-      <div class="twrap"><table><thead><tr>${th('n', '#', 'num')}${th('date', 'Date')}${th('instrument', 'Instrument')}<th>Dir.</th>${th('session', 'Session')}${th('entry', 'Entrée')}<th>SL</th><th>TP</th>${th('ret', 'R', 'num')}<th>Résultat</th><th>Grade</th><th>Plan</th><th>FOMO</th><th class="num">R cumulé</th><th class="num">📷</th></tr></thead><tbody>` +
-      ts.map(t => `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td>${esc(t.session)}</td><td>${esc(t.entry)}</td><td>${esc(t.sl)}</td><td>${esc(t.tp)}</td><td class="num ${cls(t.ret)}">${sgn(t.ret)}</td><td>${t._result ? `<span class="badge ${t._result}">${t._result}</span>` : ''}</td><td>${t._grade ? `<span class="badge g">${t._grade}</span>` : ''}</td><td>${esc(t.planFollow)}</td><td>${esc(t.fomo)}</td><td class="num">${num(t._cum)}</td><td class="num">${nShots(t) || ''}</td></tr>`).join('') +
+      <div class="twrap"><table><thead><tr>${th('n', '#', 'num')}${th('date', 'Date')}${th('instrument', 'Instrument')}<th>Dir.</th>${th('session', 'Session')}${th('entry', 'Entrée cons.')}<th>SL</th><th>TP</th>${th('ret', 'R cons.', 'num')}${th('agg', 'R agg.', 'num')}<th class="num">Δ</th><th>Résultat</th><th>Grade</th><th>Plan</th><th>FOMO</th><th class="num">R cumulé</th><th class="num">📷</th><th class="num" title="Fiche complète">Fiche</th></tr></thead><tbody>` +
+      ts.map(t => { const d = delta(t); return `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td>${esc(t.session)}</td><td>${esc(t.entry)}</td><td>${esc(t.sl)}</td><td>${esc(t.tp)}</td><td class="num ${cls(t.ret)}">${sgn(t.ret)}</td><td class="num ${cls(t.agg && t.agg.ret)}">${t.agg && S.filled(t.agg.ret) ? sgn(t.agg.ret) : ''}</td><td class="num ${cls(d)}">${d === null ? '' : sgn(d)}</td><td>${t._result ? `<span class="badge ${t._result}">${t._result}</span>` : ''}</td><td>${t._grade ? `<span class="badge g">${t._grade}</span>` : ''}</td><td>${esc(t.planFollow)}</td><td>${esc(t.fomo)}</td><td class="num">${num(t._cum)}</td><td class="num">${nShots(t) || ''}</td><td class="num">${fichePill(t)}</td></tr>`; }).join('') +
       `</tbody></table></div>${ts.length ? '' : '<p class="muted pad">Aucun trade ne correspond aux filtres.</p>'}`;
-    const re = () => { Object.assign(f, { q: $('#j-q').value, instrument: $('#j-inst').value, session: $('#j-sess').value, result: $('#j-res').value, direction: $('#j-dir').value, entry: $('#j-ent').value, from: $('#j-from').value, to: $('#j-to').value }); renderJournal(); };
+    const re = () => { Object.assign(f, { incomplete: $('#j-inc').checked, q: $('#j-q').value, instrument: $('#j-inst').value, session: $('#j-sess').value, result: $('#j-res').value, direction: $('#j-dir').value, entry: $('#j-ent').value, from: $('#j-from').value, to: $('#j-to').value, aggOnly: $('#j-agg').checked }); renderJournal(); };
     $('#j-q').addEventListener('change', re);
-    ['#j-inst', '#j-sess', '#j-res', '#j-dir', '#j-ent', '#j-from', '#j-to'].forEach(s => $(s).addEventListener('change', re));
-    $('#j-reset').onclick = () => { Object.assign(f, { q: '', instrument: '', session: '', result: '', direction: '', entry: '', from: '', to: '' }); renderJournal(); };
+    ['#j-inc', '#j-inst', '#j-sess', '#j-res', '#j-dir', '#j-ent', '#j-from', '#j-to', '#j-agg'].forEach(s => $(s).addEventListener('change', re));
+    $('#j-reset').onclick = () => { Object.assign(f, { incomplete: false, q: '', instrument: '', session: '', result: '', direction: '', entry: '', from: '', to: '', aggOnly: false }); renderJournal(); };
     document.querySelectorAll('th[data-sort]').forEach(h => h.onclick = () => { const k = h.dataset.sort; f.desc = f.sort === k ? !f.desc : true; f.sort = k; renderJournal(); });
     document.querySelectorAll('tr.click').forEach(r => r.onclick = () => openTrade(+r.dataset.n));
   }
+
 
   /* ---------- capture d'écran : affichage dans l'application ---------- */
   function shotPanel(t, key, label) {
@@ -899,22 +903,28 @@
   const step = d => { LB.i = (LB.i + d + LB.items.length) % LB.items.length; drawLightbox(); };
   function closeLightbox() { $('#lightbox').hidden = true; $('#lightbox').innerHTML = ''; LB = null; }
 
+
   /* ---------- fiche trade ---------- */
   function showModal(html) { $('#modal').innerHTML = html; $('#overlay').hidden = false; $('#overlay').scrollTop = 0; document.body.style.overflow = 'hidden'; }
   function closeModal() { $('#overlay').hidden = true; $('#modal').innerHTML = ''; document.body.style.overflow = ''; }
   function openTrade(n) {
     const t = byN(n); if (!t) return;
-    const D = (l, v) => v ? `<div><b>${l}</b>${esc(v)}</div>` : '';
+    const a = t.agg || {}, d = delta(t);
+    const D = (l, v) => v !== '' && v !== null && v !== undefined ? `<div><b>${l}</b>${esc(v)}</div>` : '';
     const block = (l, v) => v ? `<h3>${l}</h3><div class="textblock">${esc(v)}</div>` : '';
+    const hasA = [a.entry, a.sl, a.tp, a.risk, a.ret].some(S.filled);
     showModal(`
       <div class="mhead"><h1>#${t.n} · ${esc(t.instrument)} ${esc(t.direction)} <span class="muted small">${esc(t.date)} (${S.dayName(t.date)})</span></h1>
-        ${t._result ? `<span class="badge ${t._result}">${t._result} ${sgn(t.ret)} R</span>` : ''}${t._grade ? `<span class="badge g">Setup ${t._grade}</span>` : ''}
+        ${t._result ? `<span class="badge ${t._result}">Cons. ${t._result} ${sgn(t.ret)} R</span>` : ''}${S.filled(a.ret) ? `<span class="badge ${a.ret > 0 ? 'Win' : a.ret < 0 ? 'Loss' : 'Breakeven'}">Agg. ${sgn(a.ret)} R</span>` : ''}${t._grade ? `<span class="badge g">Setup ${t._grade}</span>` : ''}
         <button class="btn" id="m-prev">←</button><button class="btn" id="m-next">→</button>
         <button class="btn" id="m-edit">Modifier</button><button class="btn danger" id="m-del">Supprimer</button><button class="btn" id="m-close">Fermer</button></div>
       <div class="shots">${SLOTS.map(([k, l]) => shotPanel(t, k, l)).join('')}</div>
-      <div class="details">${D('Session', t.session)}${D('Durée', t.duration)}${D('Style', t.style)}${D('Entrée', t.entry)}${D('SL', t.sl)}${D('TP', t.tp)}${D('Risque', t.risk + ' R')}${D('Return', sgn(t.ret) + ' R')}${D('R cumulé', num(t._cum))}${D('Drawdown', num(t._dd))}
-        ${D('Corrélation 1', t.corr1)}${D('Corrélation 2', t.corr2)}${D('Plan suivi', t.planName || (planById(t.planId) || {}).name || '')}${D('Overtrade', t.overtrade)}${D('Revenge trade', t.revenge)}${D('Guardrails broken', grBrokenNames(t.guardrailsBroken))}${D('Plan-follow', t.planFollow)}${D('FOMO / impulsion', t.fomo)}${D('Gestion', t.management)}${D('Setup', t.setup)}${D('Émotion entrée', t.entryEmotion)}${D('Émotion sortie', t.exitEmotion)}
-        ${D('Bias alignment', t.bias)}${D('POI haute proba', t.poi)}${D('Killzone', t.killzone)}${D('Sweep + Market Shift', t.sweep)}${D('Score setup', t._score === null ? '' : t._score + '/4')}${D('Risque respecté', t.riskRespected)}${D('Invalidation respectée', t.invalidation)}${D('Score discipline', t._disc === null ? '' : t._disc + '/3')}</div>
+      <div class="grid2" style="margin-top:14px">
+        <div class="card"><h3>Entrée conservative</h3><div class="details">${D('Entrée', t.entry)}${D('SL', t.sl)}${D('TP', t.tp)}${D('Risque', S.filled(t.risk) ? t.risk + ' R' : '')}${D('Return', S.filled(t.ret) ? sgn(t.ret) + ' R' : '')}${D('R cumulé', num(t._cum))}${D('Drawdown', num(t._dd))}</div></div>
+        <div class="card"><h3>Entrée aggressive (simulation)</h3>${hasA ? `<div class="details">${D('Entrée', a.entry)}${D('SL', a.sl)}${D('TP', a.tp)}${D('Risque', S.filled(a.risk) ? a.risk + ' R' : '')}${D('Return', S.filled(a.ret) ? sgn(a.ret) + ' R' : '')}${D('Δ (agg − cons)', d === null ? '' : sgn(d) + ' R')}</div>` : '<p class="muted">Pas encore simulée pour ce trade. Utilisez « Modifier » pour la renseigner.</p>'}</div>
+      </div>
+      <div class="details">${D('Session', t.session)}${D('Durée', t.duration)}${D('Plan suivi', t.planName || (planById(t.planId) || {}).name || '')}${D('Overtrade', t.overtrade)}${D('Revenge trade', t.revenge)}${D('Guardrails broken', grBrokenNames(t.guardrailsBroken))}${D('Plan-follow', t.planFollow)}${D('FOMO / impulsion', t.fomo)}${D('Gestion', t.management)}
+        ${D('Bias alignment', t.bias)}${D('POI haute proba', t.poi)}${D('Killzone', t.killzone)}${D('Sweep + Market Shift', t.sweep)}${D('Score setup', t._score === null ? '' : t._score + '/4')}</div>
       ${v3Details(t)}
       ${block('Erreurs', t.mistakes)}${block('Notes', t.notes)}${block('Amélioration pour demain', t.improvement)}`);
     bindShots($('#modal'), t);
@@ -972,10 +982,12 @@
   const YN = (id, label, v) => `<label>${label}<select id="${id}">${opts(['Yes', 'No'], v, '—')}</select></label>`;
   function editTrade(n) {
     const isNew = n === null;
-    const t = isNew ? { n: Math.max(0, ...DB.trades.map(x => x.n)) + 1, date: todayISO(), risk: getGuardrails().maxRiskR || 1, direction: 'Long', screens: {} } : DB.trades.find(x => x.n === n);
+    const t = isNew ? { n: Math.max(0, ...DB.trades.map(x => x.n)) + 1, date: todayISO(), risk: getGuardrails().maxRiskR || 1, direction: 'Long', screens: {}, agg: {} } : DB.trades.find(x => x.n === n);
+    const a = t.agg || {};
     const dl = (id, arr) => `<datalist id="${id}">${arr.map(v => `<option value="${esc(v)}">`).join('')}</datalist>`;
     const mgmt = [...new Set(DB.trades.map(x => x.management).filter(Boolean))];
-    const inp = (id, label, v, type = 'text', extra = '') => `<label>${label}<input id="${id}" type="${type}" value="${esc(v)}" ${extra}></label>`;
+    const val = v => v === null || v === undefined ? '' : v;
+    const inp = (id, label, v, type = 'text', extra = '') => `<label>${label}<input id="${id}" type="${type}" value="${esc(val(v))}" ${extra}></label>`;
     showModal(`
       <div class="mhead"><h1>${isNew ? 'Nouveau trade' : 'Modifier le trade'} #${t.n}</h1></div>
       <div class="form">
@@ -984,20 +996,22 @@
         <label>Direction<select id="f-direction">${opts(['Long', 'Short'], t.direction)}</select></label>
         <label>Session<input id="f-session" list="dl-sess" value="${esc(t.session)}"></label>
         ${!isNew && t.duration ? '<label>Durée (hh:mm)<input id="f-duration" type="text" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}" placeholder="00:00" value="' + esc(val(t.duration)) + '"></label>' : ''}
-        ${!isNew && t.style ? `<label>Style<input id="f-style" list="dl-style" value="${esc(t.style)}"></label>` : ''}
-        <label>Entrée<input id="f-entry" list="dl-entry" value="${esc(t.entry)}"></label>
-        <label>SL<input id="f-sl" list="dl-sl" value="${esc(t.sl)}"></label>
-        <label>TP<input id="f-tp" list="dl-tp" value="${esc(t.tp)}"></label>
-        ${inp('f-risk', 'Risque (R)', t.risk, 'number', 'step="0.01"')}
-        ${inp('f-ret', 'Return (R)', t.ret === null || t.ret === undefined ? '' : t.ret, 'number', 'step="0.01"')}
-        ${!isNew && t.corr1 ? inp('f-corr1', 'Corrélation 1', t.corr1) : ''}${!isNew && t.corr2 ? inp('f-corr2', 'Corrélation 2', t.corr2) : ''}
+        <fieldset><legend>Entrée CONSERVATIVE</legend><div class="row">
+          <label>Entrée<input id="f-entry" list="dl-entry" value="${esc(t.entry)}"></label>
+          <label>SL<input id="f-sl" list="dl-sl" value="${esc(t.sl)}"></label>
+          <label>TP<input id="f-tp" list="dl-tp" value="${esc(t.tp)}"></label>
+          ${inp('f-risk', 'Risque (R)', t.risk, 'number', 'step="0.01"')}${inp('f-ret', 'Return (R)', t.ret, 'number', 'step="0.01"')}</div></fieldset>
+        <fieldset><legend>Entrée AGGRESSIVE (simulation du même trade)</legend><div class="row">
+          <label>Entrée<input id="f-aentry" list="dl-aentry" value="${esc(a.entry)}"></label>
+          <label>SL<input id="f-asl" list="dl-sl" value="${esc(a.sl)}"></label>
+          <label>TP<input id="f-atp" list="dl-tp" value="${esc(a.tp)}"></label>
+          ${inp('f-arisk', 'Risque (R)', a.risk, 'number', 'step="0.01"')}${inp('f-aret', 'Return (R)', a.ret, 'number', 'step="0.01"')}</div></fieldset>
         ${v3ExecFieldset(t, isNew)}
         <fieldset><legend>Process</legend><div class="row">
           ${(() => { const pd = plansData(); const cur = t.planId || pd.activeId;
             return `<label>Plan suivi<select id="f-planId">${pd.plans.map(p => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>`; })()}
-          ${YN('f-planFollow', 'Plan-follow', t.planFollow)}${YN('f-riskRespected', 'Risque respecté', t.riskRespected)}${YN('f-invalidation', 'Invalidation respectée', t.invalidation)}${YN('f-fomo', 'FOMO / impulsion', t.fomo)}${YN('f-overtrade', 'Overtrade', t.overtrade)}${YN('f-revenge', 'Revenge trade', t.revenge)}${grBrokenField(t)}
+          ${YN('f-planFollow', 'Plan-follow', t.planFollow)}${YN('f-fomo', 'FOMO / impulsion', t.fomo)}${YN('f-overtrade', 'Overtrade', t.overtrade)}${YN('f-revenge', 'Revenge trade', t.revenge)}${grBrokenField(t)}
           <label>Gestion du trade<select id="f-management">${closedOpts(lst('management'), t.management || '')}</select></label></div></fieldset>
-        ${v3EmotionsFieldset(t)}
         <fieldset><legend>Critères du setup (grade automatique)</legend><div class="row">
           ${YN('f-bias', 'Bias alignment', t.bias)}${YN('f-poi', 'POI haute probabilité', t.poi)}${!isNew && !t.entryTime && !t.killzoneAuto ? YN('f-killzone', 'Killzone (ancien trade sans heure)', t.killzone) : ''}${YN('f-sweep', 'Liquidity sweep + Market Shift', t.sweep)}</div><p class="muted small">Grade sur 4 critères (Bias, POI, Killzone, Sweep). La killzone est calculée automatiquement depuis l'heure d'entrée.</p></fieldset>
         <fieldset><legend>Captures d'écran (un lien par ligne : lien TradingView /x/…, ou URL d'image)</legend><div class="row" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
@@ -1007,38 +1021,46 @@
         <label class="wide">Notes<textarea id="f-notes">${esc(t.notes)}</textarea></label>
         <label class="wide">Amélioration pour demain<textarea id="f-improvement" placeholder="Une chose précise à faire mieux demain…">${esc(t.improvement)}</textarea></label>
       </div>
-      ${dl('dl-inst', uniq('instruments'))}${dl('dl-sess', uniq('sessions'))}${dl('dl-style', uniq('styles'))}${dl('dl-entry', uniq('entries'))}${dl('dl-sl', uniq('sl'))}${dl('dl-tp', uniq('tp'))}${dl('dl-mgmt', mgmt)}
+      ${dl('dl-inst', uniq('instruments'))}${dl('dl-sess', uniq('sessions'))}${dl('dl-entry', uniq('entries'))}${dl('dl-aentry', uniq('aggEntries'))}${dl('dl-sl', uniq('sl'))}${dl('dl-tp', uniq('tp'))}${dl('dl-mgmt', mgmt)}
       <div class="actions"><button class="btn" id="f-cancel">Annuler</button><button class="btn primary" id="f-save">Enregistrer</button></div>`);
     $('#f-cancel').onclick = () => isNew ? closeModal() : openTrade(t.n);
     grBrokenWire(); v3Wire(t, isNew);
     $('#f-save').onclick = async () => {
       const v = id => { const el = $('#f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
+      const numOrNull = id => { const x = v(id); return x === '' ? null : +x; };
       if (!v('date')) return alert('La date est obligatoire.');
       const v3err = v3Validate(); if (v3err) return alert(v3err);
       if (isNew && !guardrailConfirm(v('date'), v('session'), ($('#f-entryTime') || {}).value)) return;
       if (!v('instrument')) return alert('L\'instrument est obligatoire.');
-      const ret = v('ret');
-      if (ret !== '' && !Number.isFinite(+ret)) return alert('Return invalide.');
+      for (const id of ['ret', 'aret', 'risk', 'arisk']) { const x = v(id); if (x !== '' && !Number.isFinite(+x)) return alert('Valeur numérique invalide (' + id + ').'); }
       const urls = k => v('s-' + k).split(/[\s,;]+/).filter(u => /^(https?:\/\/|data:image\/)/.test(u));
       const nt = {
-        n: t.n, instrument: v('instrument'), direction: v('direction'), corr1: v('corr1'), corr2: v('corr2'), date: v('date'), session: v('session'), duration: v('duration'),
-        style: v('style'), entry: v('entry'), sl: v('sl'), tp: v('tp'), risk: v('risk') === '' ? 1 : +v('risk'), ret: ret === '' ? null : +ret,
+        n: t.n, instrument: v('instrument'), direction: v('direction'), date: v('date'), session: v('session'), duration: v('duration'),
+        entry: v('entry'), sl: v('sl'), tp: v('tp'), risk: numOrNull('risk'), ret: numOrNull('ret'),
+        agg: { entry: v('aentry'), sl: v('asl'), tp: v('atp'), risk: numOrNull('arisk'), ret: numOrNull('aret') },
         screens: Object.fromEntries(SLOTS.map(([k]) => [k, urls(k)])),
         planId: v('planId'), planName: (planById(v('planId')) || {}).name || '',
         overtrade: v('overtrade'), revenge: v('revenge'), guardrailsBroken: grBrokenValue(), improvement: v('improvement'), improvementAt: v('improvement') ? (v('improvement') !== String(t.improvement || '').trim() ? todayISO() : (t.improvementAt || todayISO())) : '',
-        planFollow: v('planFollow'), management: v('management'), mistakes: v('mistakes'), entryEmotion: v('entryEmotion'), exitEmotion: v('exitEmotion'), notes: v('notes'), fomo: v('fomo'),
-        bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'), riskRespected: v('riskRespected'), invalidation: v('invalidation'), setup: v('setup'),
+        planFollow: v('planFollow'), management: v('management'), mistakes: v('mistakes'), notes: v('notes'), fomo: v('fomo'),
+        bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'),
       };
       Object.assign(nt, v3Collect(t, isNew, nt));
+      const warns = v4Checks(nt);
+      if (warns.length && !confirm('Incohérences détectées :\n\n• ' + warns.join('\n• ') + '\n\nEnregistrer quand même ?')) return;
+      if (isNew && newsBlockCfg().enabled && nt.entryTime && (nt.guardrailsBroken || []).indexOf('news') < 0) {
+        const nw = newsBlockAt(tzToTs(nt.date, nt.entryTime, newsCfg().tz));
+        if (nw) { if (!confirm(`Ce trade est dans une fenêtre de blocage news (${nw.evs.map(e => e.country + ' ' + e.title).join(', ')}).\n\nL'enregistrer quand même ? Il sera marqué « Garde-fou : news ».`)) return; nt.guardrailsBroken = (nt.guardrailsBroken || []).concat(['news']); }
+      }
       const i = DB.trades.findIndex(x => x.n === t.n);
       if (i >= 0) DB.trades[i] = nt; else DB.trades.push(nt);
       if (await save(isNew ? 'Trade ajouté' : 'Trade modifié')) { openTrade(nt.n); render(); }
     };
   }
 
+
   /* ---------- REVUES (weekly / monthly / quarterly / yearly) ---------- */
   const QUESTIONS = {
-    weekly: [['q1', 'Qu\'est-ce qui a bien marché cette semaine, et pourquoi ?'], ['q2', 'Quelles erreurs ou points faibles, et quel plan de prévention ?'], ['q3', 'Quel schéma voyez-vous dans vos meilleurs et pires trades ?'], ['q4', 'Quel est votre unique priorité pour la semaine prochaine ?'], ['best', 'Meilleur trade (pourquoi il était bon)'], ['worst', 'Pire trade (cause)'], ['missed', 'Setups valides manqués', 'number']],
+    weekly: [['q1', 'Qu\'est-ce qui a bien marché cette semaine, et pourquoi ?'], ['q2', 'Quelles erreurs ou points faibles, et quel plan de prévention ?'], ['q3', 'Quel schéma voyez-vous dans vos meilleurs et pires trades ?'], ['q4', 'Quel est votre unique priorité pour la semaine prochaine ?'], ['best', 'Meilleur trade (pourquoi il était bon)'], ['worst', 'Pire trade (cause)'], ['missed', 'Setups valides manqués', 'number'], ['chart', 'Graphique à étudier']],
     monthly: [['q1', 'Quelle est la leçon n°1 du mois ?'], ['q2', 'Quelle barrière mentale est revenue le plus, et quel plan pour la corriger ?'], ['q3', 'De quoi êtes-vous le plus fier (process ou résultat) ?'], ['q4', 'Priorité unique pour le mois prochain ?'], ['best', 'Meilleur jour (qu\'avez-vous bien fait ?)'], ['worst', 'Pire jour (qu\'est-ce qui a mal tourné ?)']],
     quarterly: [['q1', 'Plus grand progrès d\'exécution ce trimestre'], ['q2', 'Plus grand progrès de discipline ce trimestre'], ['q3', 'Schéma d\'erreur à éliminer le trimestre prochain'], ['q4', 'Quelle a été votre plus grande avancée ?'], ['q5', 'Où avez-vous le plus dérapé, et quelle correction ?'], ['q6', 'Moment le plus dur et ce qu\'il vous a appris'], ['q7', 'Si vous ne maîtrisez qu\'UNE chose le trimestre prochain, laquelle ?'], ['best', 'Meilleur setup (nom + pourquoi)'], ['worst', 'Pire setup (nom + pourquoi)'], ['mistakes', '1–2 erreurs qui ont coûté le plus (en R)']],
     yearly: [['q1', 'Leçons les plus puissantes de l\'année'], ['q2', 'Habitudes, système ou changements mentaux qui ont le plus contribué à votre progression'], ['q3', 'Revers ou schémas répétés, et ce que vous changerez'], ['q4', 'Moment de trading dont vous êtes le plus fier'], ['q5', 'Partie de la stratégie à développer ou affiner'], ['q6', 'Qu\'est-ce qui ferait de l\'an prochain votre meilleure année ?'], ['best', 'Meilleur mois (pourquoi ça a marché)'], ['worst', 'Mois le plus difficile (ce qui a lâché)'], ['mistakes', 'Schéma d\'erreur le plus coûteux']],
@@ -1055,7 +1077,7 @@
     const r = ui.rev;
     if (!r.start) { const last = DB.trades.map(t => t.date).sort().pop() || todayISO(); r.start = S.period(r.type, last).start; }
     const p = S.period(r.type, r.start), all = enriched(), ts = S.inPeriod(all, p), sm = S.summary(ts);
-    const id = `${r.type}:${p.start}`, rv = DB.reviews.find(x => x.id === id) || { answers: {} };
+    const id = `${r.type}:${p.start}`, rv = DB.reviews.find(x => x.id === id) || { answers: {} }, pre = reviewPrefill(r.type, p, rv);
     const kpi = (l, v, c) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c || ''}">${v}</div></div>`;
     const withRet = ts.filter(t => S.filled(t.ret)), best = withRet.slice().sort((a, b) => b.ret - a.ret)[0], worst = withRet.slice().sort((a, b) => a.ret - b.ret)[0];
     const ctx = t => t ? `#${t.n} ${esc(t.instrument)} ${esc(t.direction)} (${esc(t.date)}) : ${sgn(t.ret)} R${t.mistakes ? ' · erreurs : ' + esc(t.mistakes) : ''}${t.notes ? ' · notes : ' + esc(t.notes) : ''}` : '–';
@@ -1069,8 +1091,10 @@
       <div class="kpis">${kpi('Trades', sm.n)}${kpi('Wins / Losses / BE', `${sm.wins} / ${sm.losses} / ${sm.be}`)}${kpi('Win rate', pct(sm.winRate))}${kpi('Net R', sgn(sm.net), cls(sm.net))}${kpi('Gain moy.', sgn(sm.avgWin))}${kpi('Perte moy.', sgn(sm.avgLoss))}${kpi('Profit factor', num(sm.profitFactor))}${kpi('Max drawdown', num(sm.maxDD) + ' R')}${kpi('Plan-follow', pct(sm.planRate))}${kpi('Hors règles', sm.ruleBreaks)}${kpi('FOMO', sm.fomo)}${kpi('A+ pris', ts.filter(t => t._grade === 'A+').length)}</div>
       ${sm.n ? `<h2>Contexte automatique</h2><div class="textblock"><b>Meilleur trade :</b> ${ctx(best)}\n<b>Pire trade :</b> ${ctx(worst)}</div>` : '<div class="note">Aucun trade sur cette période.</div>'}
       ${sm.n ? `<div class="grid2" style="margin-top:12px">${gt('Par instrument', t => t.instrument)}${gt('Par session', t => t.session)}${months}</div>` : ''}
+      ${reviewSynthesis(r.type, p)}
       <h2>Réflexion</h2>
-      <div class="card">${QUESTIONS[r.type].map(([k, label, kind]) => `<div class="qa"><label for="q-${k}">${esc(label)}</label>${kind === 'number' ? `<input type="number" id="q-${k}" value="${esc(rv.answers[k] ?? '')}">` : `<textarea id="q-${k}">${esc(rv.answers[k] ?? '')}</textarea>`}</div>`).join('')}
+      ${prefillNote(r.type, p, rv)}
+      <div class="card">${QUESTIONS[r.type].map(([k, label, kind]) => `<div class="qa"><label for="q-${k}">${esc(label)}</label>${kind === 'number' ? `<input type="number" id="q-${k}" value="${esc(rv.answers[k] ?? pre[k] ?? '')}">` : `<textarea id="q-${k}">${esc(rv.answers[k] ?? pre[k] ?? '')}</textarea>`}</div>`).join('')}
         <div class="actions"><button class="btn primary" id="r-save">Enregistrer la revue</button></div></div>
       ${ts.length ? `<h2>Trades de la période</h2><div class="twrap"><table><thead><tr><th class="num">#</th><th>Date</th><th>Instrument</th><th>Dir.</th><th class="num">R</th><th>Grade</th><th>Plan</th></tr></thead><tbody>${ts.map(t => `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td class="num ${cls(t.ret)}">${sgn(t.ret)}</td><td>${esc(t._grade)}</td><td>${esc(t.planFollow)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { const last = DB.trades.map(t => t.date).sort().pop() || p.start; r.type = b.dataset.t; r.start = S.period(r.type, p.start <= last && last <= p.end ? last : p.start).start; renderReviews(); });
@@ -1087,79 +1111,108 @@
   }
 
 
-
-
-
-
-
-
-
-  /* ---------- NEWS (calendrier économique) ---------- */
-  var _newsReady = false;
-
-  function renderNews() {
-    var nc = $('#news-container');
-    // First time: build the filters + iframe inside #news-container
-    if (!_newsReady) {
-      var saved = DB.newsFilter || {};
-      var currencies = saved.currencies || ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
-      var impact = saved.impact || '3';
-      var ccyMap = {USD:'5',EUR:'22',GBP:'17',JPY:'25',CHF:'34',AUD:'72',NZD:'43',CAD:'6'};
-      var allCcy = ['USD','EUR','GBP','JPY','CHF','AUD','NZD','CAD'];
-      var ccyChecks = allCcy.map(function(c) {
-        var checked = currencies.indexOf(c) >= 0 ? ' checked' : '';
-        return '<label class="nw-chip"><input type="checkbox" class="nw-ccy" value="' + c + '"' + checked + '> ' + c + '</label>';
-      }).join('');
-
-      var ccys = [];
-      currencies.forEach(function(c) { if (ccyMap[c]) ccys.push(ccyMap[c]); });
-      var iframeUrl = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
-        '&importance=' + impact + '&features=datepicker,timezone&countries=' + ccys.join(',') + '&calType=week&timeZone=55&lang=1';
-
-      nc.innerHTML =
-        '<div style="max-width:1400px;margin:0 auto;padding:0 18px">' +
-        '<h1>\ud83d\udcc5 Economic Calendar</h1>' +
-        '<div class="nw-filters">' +
-        '<div class="nw-filter-row"><span class="nw-label">Currencies:</span>' + ccyChecks +
-        '<button class="btn sm" id="nw-all">All</button><button class="btn sm" id="nw-none">None</button></div>' +
-        '<div class="nw-filter-row"><span class="nw-label">Impact:</span>' +
-        '<label class="nw-chip"><input type="radio" name="nw-imp" value="3"' + (impact === '3' ? ' checked' : '') + '> \ud83d\udd34 High only</label>' +
-        '<label class="nw-chip"><input type="radio" name="nw-imp" value="2,3"' + (impact === '2,3' ? ' checked' : '') + '> \ud83d\udfe0 Medium + High</label>' +
-        '<label class="nw-chip"><input type="radio" name="nw-imp" value="1,2,3"' + (impact === '1,2,3' ? ' checked' : '') + '> All</label>' +
-        '</div>' +
-        '<div class="nw-filter-row"><button class="btn primary" id="nw-apply">Apply filters</button></div>' +
-        '</div>' +
-        '<div class="cal-embed"><iframe id="nw-iframe" src="' + iframeUrl + '" width="100%" height="600" frameBorder="0" allowtransparency="true" style="border:1px solid var(--line);border-radius:var(--radius);background:#fff;display:block;min-height:500px"></iframe></div>' +
-        '<p class="muted small" style="margin-top:8px">\ud83d\udca1 Use the calendar\'s built-in date picker and timezone selector \u2014 they are preserved when you switch tabs. Source: <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Investing.com</a></p>' +
-        '</div>';
-
-      var ccyMapRef = ccyMap;
-      nc.querySelector('#nw-apply').onclick = function() {
-        var c = []; nc.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked && ccyMapRef[cb.value]) c.push(ccyMapRef[cb.value]); });
-        if (!c.length) return;
-        var imp = '3'; nc.querySelectorAll('input[name="nw-imp"]').forEach(function(r) { if (r.checked) imp = r.value; });
-        var sc = []; nc.querySelectorAll('.nw-ccy').forEach(function(cb) { if (cb.checked) sc.push(cb.value); });
-        DB.newsFilter = { currencies: sc, impact: imp };
-        var url = 'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous' +
-          '&importance=' + imp + '&features=datepicker,timezone&countries=' + c.join(',') + '&calType=week&timeZone=55&lang=1';
-        nc.querySelector('#nw-iframe').src = url;
-      };
-      nc.querySelector('#nw-all').onclick = function() { nc.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = true; }); };
-      nc.querySelector('#nw-none').onclick = function() { nc.querySelectorAll('.nw-ccy').forEach(function(cb) { cb.checked = false; }); };
-      _newsReady = true;
-    }
-    // Show news container, hide main
-    nc.hidden = false;
-    $('#main').hidden = true;
+  /* ---------- COMPARAISON Conservative vs Aggressive (apparié) ---------- */
+  function verdict(c) {
+    if (c.n < 2) return 'Aucune comparaison possible : renseignez le Return aggressive pour au moins 2 trades.';
+    const ciTxt = `IC95 % [${num(c.ci[0], 3)} ; ${num(c.ci[1], 3)}]`;
+    if (c.n < 30) return `Échantillon insuffisant (n = ${c.n} < 30) : le Δ moyen observé (${sgn(c.mean, 3)} R/trade, ${ciTxt}, p = ${num(c.p, 3)}) ne permet aucune conclusion fiable. Avec ${c.n} trades appariés, l'écart minimal détectable est d'environ ±${num(c.mde, 2)} R/trade (puissance 80 %) : une différence plus petite passerait inaperçue.`;
+    if (c.p < 0.05) return `L'entrée ${c.mean > 0 ? 'AGGRESSIVE' : 'CONSERVATIVE'} est statistiquement supérieure : Δ = ${sgn(c.mean, 3)} R/trade, ${ciTxt}, p = ${num(c.p, 3)} (test t apparié). Vérifiez que le test des signes (p = ${num(c.pSign, 3)}) et le bootstrap [${num(c.boot.lo, 3)} ; ${num(c.boot.hi, 3)}] concordent.`;
+    return `Différence NON significative (p = ${num(c.p, 3)}, ${ciTxt}) : rien ne prouve que l'entrée aggressive soit plus rentable que la conservative.`;
+  }
+  function renderCompare() {
+    const all = DB.trades;
+    const consN = all.filter(t => S.filled(t.ret)).length, aggN = all.filter(t => t.agg && S.filled(t.agg.ret)).length;
+    const rows = S.pairedRows(all), c = S.comparePaired(rows);
+    const noType = rows.filter(t => !t.agg.entry), consNoEntry = rows.filter(t => S.isNoEntry(t.entry)), aggNoEntry = rows.filter(t => t.agg.entry && S.isNoEntry(t.agg.entry));
+    const ns = rows.map(t => t.n), kpi = (l, v, s, k) => `<div class="kpi"><div class="l">${l}</div><div class="v ${k || ''}">${v}</div><div class="s">${s || ''}</div></div>`;
+    const scen = [
+      ['Tous les trades appariés', rows],
+      ['Hors Return aggressif sans type d\'entrée aggressive', rows.filter(t => t.agg.entry)],
+      ['Seulement les trades pris dans les DEUX groupes', rows.filter(t => !S.isNoEntry(t.entry) && !S.isNoEntry(t.agg.entry))],
+    ].map(([label, rs]) => ({ label, c: S.comparePaired(rs) }));
+    const kr = [
+      ['Nombre de trades (n)', c.n, c.n, '0', false],
+      ['Win rate', c.cons.winRate, c.agg.winRate, 'p'],
+      ['Net R', c.cons.net, c.agg.net, '2'],
+      ['Espérance (R/trade)', c.cons.exp, c.agg.exp, '3'],
+      ['Gain moyen (R)', c.cons.avgWin, c.agg.avgWin, '2'],
+      ['Perte moyenne (R)', c.cons.avgLoss, c.agg.avgLoss, '2'],
+      ['Profit factor', c.cons.profitFactor, c.agg.profitFactor, '2'],
+      ['Écart-type des R', c.cons.sd, c.agg.sd, '3'],
+      ['Sharpe-like (moy. / écart-type)', c.cons.sharpe, c.agg.sharpe, '3'],
+      ['Max drawdown (R, sur ces trades)', c.cons.maxDD, c.agg.maxDD, '2'],
+      ['Série max de pertes consécutives', c.lossStreakC, c.lossStreakA, '0'],
+    ];
+    const fm = (v, k) => v === null || v === undefined ? '–' : k === 'p' ? pct(v, 1) : k === '0' ? String(v) : num(v, +k);
+    const kpiRows = kr.map(([l, a, b, k, diff]) => `<tr><td>${l}</td><td class="num">${fm(a, k)}</td><td class="num">${fm(b, k)}</td><td class="num ${diff === false ? '' : cls(b - a)}">${diff === false || a === null || b === null || !isFinite(a) || !isFinite(b) ? '' : k === 'p' ? sgn((b - a) * 100, 1) + ' pts' : sgn(b - a, +k)}</td></tr>`).join('');
+    const sc = x => x.n < 2 ? '–' : '';
+    const scenRows = scen.map(({ label, c: s }) => `<tr><td>${esc(label)}</td><td class="num">${s.n}</td><td class="num ${cls(s.mean)}">${s.n < 2 ? '–' : sgn(s.mean, 3)}</td><td class="num">${s.n < 2 ? '–' : `[${num(s.ci[0], 2)} ; ${num(s.ci[1], 2)}]`}</td><td class="num">${s.n < 2 ? '–' : num(s.p, 3)}</td><td class="num">${s.n < 2 ? '–' : num(s.pSign, 3)}</td><td class="num">${pct(s.cons.winRate)} / ${pct(s.agg.winRate)}</td><td class="num">${s.n ? sgn(s.cons.net) + ' / ' + sgn(s.agg.net) : '–'}</td></tr>`).join('');
+    const byType = {};
+    rows.forEach((t, i) => { const k = t.agg.entry || '(type non renseigné)'; (byType[k] = byType[k] || []).push(i); });
+    const typeRows = Object.entries(byType).map(([k, idx]) => {
+      const m = a => a.reduce((x, y) => x + y, 0) / a.length, C = idx.map(i => c.C[i]), A = idx.map(i => c.A[i]);
+      return `<tr class="${idx.length < 10 ? 'low' : ''}"><td>${esc(k)}</td><td class="num">${idx.length}</td><td class="num">${sgn(m(C), 2)}</td><td class="num">${sgn(m(A), 2)}</td><td class="num ${cls(m(A) - m(C))}">${sgn(m(A) - m(C), 2)}</td><td class="num">${pct(A.filter(x => x > 0).length / A.length)}</td></tr>`;
+    }).join('');
+    const eqC = [[0, 0], ...c.cumC.map((v, i) => [i + 1, v])], eqA = [[0, 0], ...c.cumA.map((v, i) => [i + 1, v])];
+    const dC = [[0, 0], ...c.cumA.map((v, i) => [i + 1, v - c.cumC[i]])];
+    const warn = [];
+    if (noType.length) warn.push(`<b>${noType.length}</b> trade(s) ont un Return aggressif mais <b>aucun type d'entrée aggressive</b> (valeurs : ${noType.map(t => sgn(t.agg.ret, 2)).join(', ')}). Ce sont peut-être des espaces réservés non resimulés : le scénario 2 ci-dessous les exclut.`);
+    if (consNoEntry.length) warn.push(`<b>${consNoEntry.length}</b> trade(s) n'ont pas d'entrée conservative (« No Entry » ou vide, Return 0) : l'aggressive y est comparée à un trade non pris.`);
+    if (aggNoEntry.length) warn.push(`<b>${aggNoEntry.length}</b> trade(s) ont « No Entry » côté aggressif (Return 0 : l'entrée aggressive n'aurait pas eu lieu).`);
+    $('#main').innerHTML = `
+      <h1>Comparaison Conservative vs Aggressive</h1>
+      <div class="note" style="border-color:var(--accent)">Comparaison <b>appariée</b> : seuls les trades dont les deux Return (conservative ET aggressive) sont renseignés sont retenus, afin de comparer les deux stratégies sur exactement les mêmes trades. Δ = Return aggressif − Return conservatif.</div>
+      <div class="kpis">
+        ${kpi('Trades avec Return conservative', consN)}${kpi('Trades avec Return aggressive', aggN)}
+        ${kpi('Trades appariés (n)', c.n, c.n < 30 ? 'sous le seuil de 30' : '', c.n < 30 ? 'neu' : '')}
+        ${kpi('Couverture', consN ? pct(c.n / consN, 1) : '–', ns.length ? `trades #${Math.min(...ns)} à #${Math.max(...ns)}` : '')}
+      </div>
+      ${c.n && c.n < consN ? `<div class="note">Seuls ${c.n} trades sur ${consN} ont été resimulés${ns.length && Math.min(...ns) > Math.min(...all.map(t => t.n)) + (consN - c.n) / 2 ? ', et ce sont les plus récents' : ''} : ce n'est pas un échantillon aléatoire (période et conditions de marché propres). La conclusion ne vaut que pour ces trades, pas pour l'ensemble du journal.</div>` : ''}
+      ${warn.length ? `<div class="note"><b>Qualité des données</b><br>${warn.map(w => '• ' + w).join('<br>')}</div>` : ''}
+      <h2>Verdict automatique</h2>
+      <div class="card"><b>${esc(verdict(c))}</b></div>
+      <h2>KPIs comparés (trades appariés)</h2>
+      <div class="twrap" style="max-height:none"><table><thead><tr><th>KPI</th><th class="num">Conservative</th><th class="num">Aggressive</th><th class="num">Écart (Agg − Cons)</th></tr></thead><tbody>${kpiRows}</tbody></table></div>
+      <h2>Test apparié sur les Δ</h2>
+      <div class="kpis">
+        ${kpi('Δ moyen (R/trade)', sgn(c.mean, 3), `écart-type ${num(c.sd, 3)} · erreur std ${num(c.se, 3)}`, cls(c.mean))}
+        ${kpi('IC 95 % (Student)', c.n < 2 ? '–' : `[${num(c.ci[0], 2)} ; ${num(c.ci[1], 2)}]`, c.n < 2 ? '' : (c.ci[0] <= 0 && c.ci[1] >= 0 ? 'contient 0' : 'exclut 0'))}
+        ${kpi('IC 95 % (bootstrap)', c.n < 2 ? '–' : `[${num(c.boot.lo, 2)} ; ${num(c.boot.hi, 2)}]`, c.n < 2 ? '' : '10 000 rééchantillonnages · P(Δ>0) = ' + pct(c.boot.pPos))}
+        ${kpi('t de Student', num(c.t, 3), `df = ${c.df} · p = ${num(c.p, 4)}`)}
+        ${kpi('Test des signes', 'p = ' + num(c.pSign, 3), `${c.signPos} + · ${c.signNeg} − · ${c.tie} égalités`)}
+        ${kpi('Taille d\'effet (dz)', num(c.dz, 3), '|dz| < 0,2 = négligeable')}
+        ${kpi('Part où Aggressive > Cons.', c.n ? pct(c.signPos / c.n, 1) : '–', `${c.signPos} / ${c.n} trades`)}
+        ${kpi('Écart minimal détectable', c.mde === null ? '–' : '±' + num(c.mde, 2) + ' R', 'α 5 %, puissance 80 % avec n = ' + c.n)}
+        ${kpi('n nécessaire (écart observé)', c.nNeeded === null ? '–' : c.nNeeded, 'trades appariés pour le confirmer')}
+      </div>
+      <div class="note">Le test t suppose des Δ à peu près normaux ; or les R sont asymétriques (beaucoup de −1, quelques gros gains). Le test des signes et le bootstrap, qui n'ont pas cette hypothèse, sont donnés en contrôle : une conclusion fiable exige qu'ils concordent.</div>
+      <h2>Robustesse : trois façons de constituer l'échantillon</h2>
+      <div class="twrap" style="max-height:none"><table><thead><tr><th>Scénario</th><th class="num">n</th><th class="num">Δ moyen</th><th class="num">IC 95 %</th><th class="num">p (t)</th><th class="num">p (signes)</th><th class="num">Win rate cons. / agg.</th><th class="num">Net R cons. / agg.</th></tr></thead><tbody>${scenRows}</tbody></table></div>
+      <div class="note">Ces trois scénarios sont des découpes <b>a posteriori</b> du même petit échantillon. Quand on teste 3 variantes à 5 %, la probabilité d'obtenir au moins un résultat « significatif » par pur hasard est d'environ 14 % ; et plus le sous-échantillon est réduit (n &lt; 15), plus l'IC est fragile. Un seul scénario significatif sur trois ne prouve donc rien : seule une répétition sur davantage de trades appariés (idéalement ≥ 30, tirés sans sélection) permet de conclure.</div>
+      <h2>Courbes de R cumulé (trades appariés)</h2>
+      <div class="grid2">
+        <div class="card"><h3>R cumulé : conservative vs aggressive</h3>${lineChart({ series: [{ name: 'Conservative', color: 'var(--accent)', pts: eqC }, { name: 'Aggressive', color: 'var(--be)', pts: eqA }], yFmt: v => v.toFixed(0) })}<p class="small muted">Bleu = conservative · Jaune = aggressive</p></div>
+        <div class="card"><h3>Δ cumulé (aggressive − conservative)</h3>${lineChart({ series: [{ name: 'Δ cumulé', color: 'var(--win)', pts: dC }], yFmt: v => v.toFixed(1) })}<p class="small muted">Une pente positive durable = avantage cumulé de l'aggressive.</p></div>
+      </div>
+      <div class="grid2" style="margin-top:14px">
+        <div class="card"><h3>Par type d'entrée aggressive</h3><div class="twrap" style="max-height:none"><table><thead><tr><th>Type</th><th class="num">n</th><th class="num">R moy. cons.</th><th class="num">R moy. agg.</th><th class="num">Δ moy.</th><th class="num">Win rate agg.</th></tr></thead><tbody>${typeRows}</tbody></table></div></div>
+      </div>
+      <h2>Détail des trades appariés</h2>
+      <div class="twrap"><table><thead><tr><th class="num">#</th><th>Date</th><th>Instrument</th><th>Dir.</th><th>Entrée cons.</th><th class="num">R cons.</th><th>Entrée agg.</th><th class="num">R agg.</th><th class="num">Δ</th></tr></thead><tbody>${rows.map((t, i) => `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td>${esc(t.entry)}</td><td class="num ${cls(c.C[i])}">${sgn(c.C[i])}</td><td>${esc(t.agg.entry)}</td><td class="num ${cls(c.A[i])}">${sgn(c.A[i])}</td><td class="num ${cls(c.D[i])}">${sgn(c.D[i])}</td></tr>`).join('')}</tbody></table></div>
+      ${c.n ? '' : '<p class="muted pad">Aucun trade apparié pour l\'instant : renseignez le Return aggressive dans la fiche d\'un trade (bouton « Modifier »).</p>'}`;
+    document.querySelectorAll('tr.click').forEach(r => r.onclick = () => openTrade(+r.dataset.n));
   }
 
-  function hideNews() {
-    var nc = $('#news-container');
-    if (nc) nc.hidden = true;
-    $('#main').hidden = false;
-  }
 
 
+
+
+
+
+
+
+
+  /* NEWS : voir le calendrier V4 plus bas */
 
   /* ---------- TRADING PLAN ---------- */
   function plansData() {
@@ -2172,11 +2225,13 @@
         <div class="kz-ind" id="f-kzind"></div>
         <label>R prévu (TP initial)<input id="f-plannedR" type="number" step="0.01" value="${esc(vOr(t.plannedR))}" placeholder="ex. 3"></label>
         <label>Type de sortie<select id="f-exitType">${closedOpts(lst('exitTypes'), t.exitType || '')}</select></label>
-        <label>MAE (R contre toi)<input id="f-mae" type="number" step="0.01" min="0" value="${esc(vOr(t.mae))}" placeholder="ex. 0.6"></label>
-        <label>MFE (R en ta faveur)<input id="f-mfe" type="number" step="0.01" min="0" value="${esc(vOr(t.mfe))}" placeholder="ex. 2.4"></label>
-      </div><p class="muted small">Killzone contrôlée automatiquement avec l'heure d'entrée (fenêtres de l'onglet Guardrails, même fuseau). MAE = recul maximal contre la position avant la sortie ; MFE = avance maximale en ta faveur.</p></fieldset>`;
+        <label>Taille du SL (pips)<input id="f-slPips" type="number" step="0.1" min="0" value="${esc(vOr(t.slPips))}" placeholder="ex. 8"></label>
+        <label>MAE (pips contre toi)<input id="f-maePips" type="number" step="0.1" min="0" value="${esc(vOr(isSet(t.maePips) ? t.maePips : (isSet(t.slPips) ? '' : t.mae)))}" placeholder="ex. 5"></label>
+        <label>MFE (pips en ta faveur)<input id="f-mfePips" type="number" step="0.1" min="0" value="${esc(vOr(isSet(t.mfePips) ? t.mfePips : (isSet(t.slPips) ? '' : t.mfe)))}" placeholder="ex. 30"></label>
+        <div class="kz-ind" id="f-rconv"></div>
+      </div><p class="muted small">Killzone contrôlée automatiquement avec l'heure d'entrée (fenêtres de l'onglet Guardrails, même fuseau). MAE = recul maximal contre la position, MFE = avance maximale en ta faveur, en pips : la conversion en R se fait avec la taille du SL.</p></fieldset>`;
   }
-  function v3MistakesField(t) { return msField('f-mtags', 'Erreurs (tags)', lst('mistakeTags'), t.mistakeTags || [], 'Aucune'); }
+  function v3MistakesField(t) { const nk = x => !/hors\s*kill/i.test(x); return msField('f-mtags', 'Erreurs (tags)', lst('mistakeTags').filter(nk), (t.mistakeTags || []).filter(nk), 'Aucune'); }
   function v3EmotionsFieldset(t) {
     if (IS_BT) return '';
     return `<fieldset><legend>Émotions (état + intensité 1–5)</legend><div class="row emo-grid">${emoField('Entry', 'À l\'entrée', t)}${emoField('During', 'Pendant le trade', t)}${emoField('Exit', 'À la sortie', t)}</div></fieldset>`;
@@ -2190,6 +2245,9 @@
       el.innerHTML = (k ? (k.inKz ? `<span class="badge Win">✓ Killzone ${esc(k.name)}</span>` : '<span class="badge Loss">✗ Hors killzone</span>') : '<span class="muted small">Killzone : saisis l\'heure d\'entrée</span>') + (d ? ` <span class="muted small">Durée ${d}</span>` : '');
     };
     ['#f-entryTime', '#f-exitTime'].forEach(s => $(s) && $(s).addEventListener('input', upd)); upd();
+    const conv = () => { const el = $('#f-rconv'); if (!el) return; const sl = +$('#f-slPips').value, a = $('#f-maePips').value, b = $('#f-mfePips').value;
+      el.innerHTML = sl > 0 ? `<span class="muted small">≈ MAE ${a === '' ? '–' : num(a / sl) + ' R'} · MFE ${b === '' ? '–' : num(b / sl) + ' R'}</span>` : ((a !== '' || b !== '') ? '<span class="badge Loss">Taille du SL requise pour convertir en R</span>' : ''); };
+    ['#f-slPips', '#f-maePips', '#f-mfePips'].forEach(s => $(s) && $(s).addEventListener('input', conv)); conv();
     if (!isNew && t.preLockedAt) {
       PRE_FIELDS.forEach(([k]) => { const el = $('#f-' + k); if (el) el.disabled = true; });
       $('#f-unlock').onclick = () => {
@@ -2200,7 +2258,7 @@
     }
   }
   function v3Validate() {
-    for (const id of ['plannedR', 'mae', 'mfe']) { const el = $('#f-' + id); if (el && el.value.trim() !== '' && !Number.isFinite(+el.value)) return 'Valeur numérique invalide (' + id + ').'; }
+    for (const id of ['plannedR', 'slPips', 'maePips', 'mfePips']) { const el = $('#f-' + id); if (el && el.value.trim() !== '' && !Number.isFinite(+el.value)) return 'Valeur numérique invalide (' + id + ').'; }
     for (const id of ['entryTime', 'exitTime']) { const el = $('#f-' + id); if (el && el.value.trim() !== '' && toMin(el.value) === null) return 'Heure invalide (hh:mm).'; }
     return '';
   }
@@ -2208,7 +2266,9 @@
   function v3Collect(t, isNew, base) {
     const g = id => { const el = document.getElementById('f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
     const nf = id => { const x = g(id); return x === '' ? null : +x; };
-    const o = { entryTime: g('entryTime'), exitTime: g('exitTime'), setup: g('setup'), execPoi: g('execPoi'), exitType: g('exitType'), plannedR: nf('plannedR'), mae: nf('mae'), mfe: nf('mfe') };
+    const o = { entryTime: g('entryTime'), exitTime: g('exitTime'), setup: g('setup'), execPoi: g('execPoi'), exitType: g('exitType'), plannedR: nf('plannedR'), slPips: nf('slPips'), maePips: nf('maePips'), mfePips: nf('mfePips') };
+    o.mae = o.slPips > 0 && o.maePips !== null ? +(o.maePips / o.slPips).toFixed(2) : null;
+    o.mfe = o.slPips > 0 && o.mfePips !== null ? +(o.mfePips / o.slPips).toFixed(2) : null;
     const tags = msValue('f-mtags'); o.mistakeTags = tags === null ? (t.mistakeTags || []) : tags;
     if (!IS_BT) ['Entry', 'During', 'Exit'].forEach(k => { o['emo' + k] = g('emo' + k); o['emo' + k + 'Lvl'] = g('emo' + k + 'Lvl') === '' ? null : +g('emo' + k + 'Lvl'); o['emo' + k + 'Note'] = g('emo' + k + 'Note'); });
     const d = durationOf(o.entryTime, o.exitTime); if (d) o.duration = d;
@@ -2232,7 +2292,7 @@
     const D = (l, v) => isSet(v) ? `<div><b>${l}</b>${esc(v)}</div>` : '';
     const emo = k => t['emo' + k] ? t['emo' + k] + (isSet(t['emo' + k + 'Lvl']) ? ' (' + t['emo' + k + 'Lvl'] + '/5)' : '') + (t['emo' + k + 'Note'] ? ' – ' + t['emo' + k + 'Note'] : '') : '';
     const kzTxt = t.killzoneAuto === 'time' ? (t.killzone === 'Yes' ? '✓ ' + (t.killzoneName || 'oui') : '✗ hors killzone') + ' (auto, heure)' : t.killzoneAuto === 'session' ? (t.killzone === 'Yes' ? '✓' : '✗') + ' (auto, session)' : t.killzone;
-    let h = `<div class="details">${D('Heure d\'entrée', t.entryTime)}${D('Heure de sortie', t.exitTime)}${D('Killzone', kzTxt)}${D('Setup', t.setup)}${D('POI d\'exécution', t.execPoi)}${D('R prévu (TP initial)', isSet(t.plannedR) ? sgn(t.plannedR) + ' R' : '')}${D('Type de sortie', t.exitType)}${D('MAE', isSet(t.mae) ? num(t.mae) + ' R' : '')}${D('MFE', isSet(t.mfe) ? num(t.mfe) + ' R' : '')}
+    let h = ficheBlock(t) + `<div class="details">${D('Heure d\'entrée', t.entryTime)}${D('Heure de sortie', t.exitTime)}${D('Killzone', kzTxt)}${D('Setup', t.setup)}${D('POI d\'exécution', t.execPoi)}${D('R prévu (TP initial)', isSet(t.plannedR) ? sgn(t.plannedR) + ' R' : '')}${D('Type de sortie', t.exitType)}${D('Taille du SL', isSet(t.slPips) ? t.slPips + ' pips' : '')}${D('MAE', isSet(t.maePips) ? t.maePips + ' pips' + (isSet(t.mae) ? ' (' + num(t.mae) + ' R)' : '') : isSet(t.mae) ? num(t.mae) : '')}${D('MFE', isSet(t.mfePips) ? t.mfePips + ' pips' + (isSet(t.mfe) ? ' (' + num(t.mfe) + ' R)' : '') : isSet(t.mfe) ? num(t.mfe) : '')}
       ${IS_BT ? '' : D('Émotion entrée', emo('Entry')) + D('Émotion pendant', emo('During')) + D('Émotion sortie', emo('Exit'))}${D('Erreurs (tags)', (t.mistakeTags || []).join(', '))}</div>`;
     if (t.preLockedAt) h += `<div class="lockbar">🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}${t.preEdits && t.preEdits.length ? ` · <b>modifiés après coup</b> le ${esc(fmtStamp(t.preEdits[t.preEdits.length - 1].at))} (${esc(t.preEdits.map(e => e.fields.join(', ')).join(' ; '))}) — valeurs d'origine : ${esc(Object.entries(t.preOriginal || {}).map(([k, v]) => k + '=' + (v || '—')).join(', '))}` : ''}</div>`;
     const s = t.checklistSnap;
@@ -2404,6 +2464,10 @@
       const lim = addDaysISO(dates[0], -31), rv = (DB.reviews || []).filter(r => r.start && r.start < lim);
       if (rv.length) groups.push({ id: 'reviews', title: `Revues : supprimer ${rv.length} revue(s) datée(s) avant le début de ce journal (${dates[0]})`, ex: rv.map(r => `${TYPES[r.type] || r.type} ${r.start}`), apply: () => { DB.reviews = DB.reviews.filter(r => rv.indexOf(r) < 0); } });
     }
+    const mp = DB.trades.filter(t => (isSet(t.mae) || isSet(t.mfe)) && !isSet(t.slPips) && !isSet(t.maePips) && !isSet(t.mfePips));
+    if (mp.length) groups.push({ id: 'maepips', title: `MAE/MFE : déplacer ${mp.length} valeur(s) saisies en pips vers les nouveaux champs « pips »`, ex: mp.map(t => `#${t.n} MAE ${isSet(t.mae) ? t.mae : '–'} · MFE ${isSet(t.mfe) ? t.mfe : '–'} → pips (ajoute la taille du SL pour la conversion en R)`), apply: () => mp.forEach(t => { if (isSet(t.mae)) t.maePips = t.mae; if (isSet(t.mfe)) t.mfePips = t.mfe; t.mae = null; t.mfe = null; }) });
+    const hk = DB.trades.filter(t => (t.mistakeTags || []).some(x => /hors\s*kill/i.test(x))), hkList = (DB.lists.mistakeTags || []).some(x => /hors\s*kill/i.test(x));
+    if (hk.length || hkList) groups.push({ id: 'horskz', title: `Retirer le tag « Hors Killzone » (${hk.length} trade(s)) : la killzone est déjà contrôlée automatiquement`, ex: hk.map(t => `#${t.n} : killzone = ${t.killzone || '–'}`).concat(hkList ? ['Retiré aussi de la liste des tags'] : []), apply: () => { hk.forEach(t => { t.mistakeTags = t.mistakeTags.filter(x => !/hors\s*kill/i.test(x)); if (!t.killzone) t.killzone = 'No'; }); if (DB.lists.mistakeTags) DB.lists.mistakeTags = DB.lists.mistakeTags.filter(x => !/hors\s*kill/i.test(x)); } });
     const rr = DB.trades.filter(t => 'rr' in t);
     if (rr.length) groups.push({ id: 'rr', title: `Supprimer le champ « RR asymétrique » de ${rr.length} trade(s)`, ex: ['Le grade du setup est désormais calculé sur 4 critères : Bias, POI, Killzone, Sweep'], apply: () => rr.forEach(t => delete t.rr) });
     return { groups, unknownMg };
@@ -2499,31 +2563,358 @@
     return `<div class="gr-alert gr-warn">📝 Revue(s) en retard : ${miss.map(m => `<a href="#/reviews" data-rev="${m.type}|${m.p.start}">${esc(m.label)}</a> (${m.n} trade${m.n > 1 ? 's' : ''})`).join(' · ')}</div>`;
   }
 
+  /* ================= V4 : pips, cohérence, fiche complète, setups, revues pré-remplies ================= */
+  const vOrN = v => v === null || v === undefined || v === '' ? null : +v;
+  GR_BREAK_NAMES.news = 'Trade pendant un blocage news';
+
+  /* ---- contrôles de cohérence (avertissement avant enregistrement) ---- */
+  function v4Checks(t) {
+    const w = [], r = Number(t.ret), has = v => isSet(v) && !isNaN(+v);
+    if (S.filled(t.ret)) {
+      if (t.exitType === 'SL touché' && r > 0) w.push(`Sortie « SL touché » mais résultat positif (${sgn(r)} R). Si le SL avait été déplacé en profit, choisis plutôt « Trailing stop » (gestion) ou « Breakeven ».`);
+      if (t.exitType === 'TP atteint' && r <= 0) w.push(`Sortie « TP atteint » mais résultat ${sgn(r)} R.`);
+      if (t.exitType === 'Breakeven' && Math.abs(r) > 0.3) w.push(`Sortie « Breakeven » mais résultat ${sgn(r)} R.`);
+      if (t.exitType === 'TP atteint' && !has(t.plannedR)) w.push('« TP atteint » sans R prévu : renseigne le R du TP initial.');
+      if (t.exitType === 'TP atteint' && has(t.plannedR) && Math.abs(r - t.plannedR) > 0.5) w.push(`TP atteint à ${sgn(r)} R alors que le R prévu est ${sgn(+t.plannedR)} R.`);
+      if (r < -1.2) w.push(`Perte de ${sgn(r)} R : plus grande que le risque de 1 R.`);
+      if (has(t.mae) && t.mae > 1.05 && r > -1) w.push(`MAE de ${num(t.mae)} R alors que le SL fait 1 R : le stop aurait été touché. Vérifie la taille du SL ou la MAE.`);
+      if (has(t.mfe) && r > 0 && t.mfe + 0.05 < r) w.push(`MFE (${num(t.mfe)} R) plus petite que le gain réalisé (${sgn(r)} R).`);
+      if (has(t.mfe) && r < 0 && t.mfe >= 1 && !t.exitType) w.push(`Perte alors que le prix est allé à +${num(t.mfe)} R : précise le type de sortie.`);
+    }
+    if ((has(t.maePips) || has(t.mfePips)) && !(+t.slPips > 0)) w.push('MAE/MFE saisies sans taille de SL : la conversion en R est impossible.');
+    if (t.entryTime && t.exitTime && toMin(t.exitTime) < toMin(t.entryTime)) w.push('Heure de sortie avant l\'heure d\'entrée (trade sur deux jours ?).');
+    if (t.fomo === 'Yes' && t.planFollow === 'Yes') w.push('FOMO = Yes mais « Plan suivi » = Yes.');
+    if (t.revenge === 'Yes' && t.planFollow === 'Yes') w.push('Revenge trade = Yes mais « Plan suivi » = Yes.');
+    if (S.filled(t.ret) && r > 0 && t.exitType === 'SL touché' && t.management === 'Set and Forget') w.push('« Set and Forget » + « SL touché » + gain : combinaison impossible.');
+    return w;
+  }
+
+  /* ---- fiche complète ---- */
+  const COMPLETE_FIELDS = () => [['instrument', 'Instrument'], ['direction', 'Direction'], ['session', 'Session'], ['entry', 'Entrée'], ['sl', 'SL'], ['tp', 'TP'], ['ret', 'Résultat (R)'],
+    ['setup', 'Setup'], ['execPoi', 'POI d\'exécution'], ['entryTime', 'Heure d\'entrée'], ['exitTime', 'Heure de sortie'], ['slPips', 'Taille SL (pips)'], ['plannedR', 'R prévu'], ['exitType', 'Type de sortie'],
+    ['maePips', 'MAE'], ['mfePips', 'MFE'], ['bias', 'Bias'], ['poi', 'POI'], ['sweep', 'Sweep'], ['fomo', 'FOMO'], ['management', 'Gestion'], ['screens', 'Captures']]
+    .concat(IS_BT ? [] : [['planFollow', 'Plan suivi'], ['emoEntry', 'Émotion entrée'], ['emoDuring', 'Émotion pendant'], ['emoExit', 'Émotion sortie']]);
+  function completeness(t) {
+    const f = COMPLETE_FIELDS();
+    const miss = f.filter(([k]) => k === 'screens' ? !(t.screens && Object.values(t.screens).some(v => v && v.length)) : !isSet(t[k])).map(x => x[1]);
+    return { pct: Math.round((f.length - miss.length) / f.length * 100), miss };
+  }
+  function fichePill(t) {
+    const c = completeness(t), k = c.pct >= 100 ? 'ok' : c.pct >= 80 ? 'mid' : 'low';
+    return `<span class="fiche fiche-${k}" title="${esc(c.miss.length ? 'Manque : ' + c.miss.join(', ') : 'Fiche complète')}">${c.pct}%</span>`;
+  }
+  function ficheBlock(t) {
+    const c = completeness(t);
+    return c.miss.length ? `<div class="fiche-line">${fichePill(t)} Fiche complète à ${c.pct} % · manque : ${esc(c.miss.join(', '))}</div>` : `<div class="fiche-line">${fichePill(t)} Fiche complète</div>`;
+  }
+
+  /* ---- fiche par setup (playbook) ---- */
+  function pbData() { DB.playbook = DB.playbook || {}; return DB.playbook; }
+  function renderSetups() {
+    const all = DB.trades.filter(takenT).filter(t => S.filled(t.ret));
+    const names = [...new Set(lst('setups').concat(all.map(t => t.setup).filter(Boolean)))];
+    ui.pb = ui.pb && names.indexOf(ui.pb) >= 0 ? ui.pb : names[0];
+    const card = name => {
+      const ts = all.filter(t => t.setup === name).sort((a, b) => (a.date + String(a.n).padStart(6, '0')).localeCompare(b.date + String(b.n).padStart(6, '0')));
+      const st = bvlStats(ts), last = ts.slice(-15), eLast = meanOf(rets(last)), gp = st.r.filter(x => x > 0).reduce((s, v) => s + v, 0), gl = -st.r.filter(x => x < 0).reduce((s, v) => s + v, 0);
+      return { ts, st, eLast, last, pf: gl ? gp / gl : null };
+    };
+    const chips = names.map(n => { const c = card(n); return `<button class="pb-chip ${n === ui.pb ? 'on' : ''} ${c.st.n >= 5 && c.eLast !== null && c.eLast < 0 ? 'alert' : ''}" data-pb="${esc(n)}">${esc(n)} <span class="muted small">${c.st.n}</span></button>`; }).join('');
+    const name = ui.pb; if (!name) { $('#main').innerHTML = '<h1>Setups</h1><p class="muted">Ajoute des setups dans Données → Listes.</p>'; return; }
+    const c = card(name), pb = pbData()[name] || {}, g = fn => S.groupBy(c.ts, fn);
+    const ex = (pb.examples || '').split('\n').map(s => s.trim()).filter(Boolean);
+    $('#main').innerHTML = `
+      <h1>Setups</h1>
+      <div class="pb-chips">${chips}</div>
+      <div class="card pb-card">
+        <h2 style="margin-top:0">${esc(name)}</h2>
+        ${c.st.n >= 5 && c.eLast !== null && c.eLast < 0 ? `<div class="gr-alert gr-danger">⚠ Espérance des ${c.last.length} derniers trades de ce setup : ${sgn(c.eLast)} R. Relis les règles et les erreurs récentes avant de le reprendre.</div>` : ''}
+        <div class="kpis">
+          <div class="kpi"><div class="l">Trades</div><div class="v">${c.st.n}</div></div>
+          <div class="kpi"><div class="l">Win rate</div><div class="v">${pct(c.st.wr)}</div><div class="s">${c.st.n ? `IC95 % [${pct(c.st.wrCI[0])} ; ${pct(c.st.wrCI[1])}]` : ''}</div></div>
+          <div class="kpi"><div class="l">Espérance</div><div class="v ${cls(c.st.e)}">${c.st.e === null ? '–' : sgn(c.st.e) + ' R'}</div><div class="s">${c.st.eCI[0] === null ? '' : `IC95 % [${num(c.st.eCI[0])} ; ${num(c.st.eCI[1])}]`}</div></div>
+          <div class="kpi"><div class="l">${c.last.length} derniers</div><div class="v ${cls(c.eLast)}">${c.eLast === null ? '–' : sgn(c.eLast) + ' R'}</div><div class="s">Profit factor ${c.pf === null ? '–' : num(c.pf)}</div></div>
+        </div>
+        ${c.st.n && c.st.n < 20 ? `<p class="muted small">Moins de 20 trades : les intervalles sont larges, ne tire pas de règle définitive.</p>` : ''}
+        <div class="grid2">
+          <div><h3>Règles du setup</h3><textarea id="pb-rules" rows="8" placeholder="Contexte HTF, conditions d'entrée, invalidation, TP, gestion…">${esc(pb.rules || '')}</textarea></div>
+          <div><h3>Exemples (un lien TradingView ou image par ligne)</h3><textarea id="pb-ex" rows="8" placeholder="https://www.tradingview.com/x/…">${esc(pb.examples || '')}</textarea>
+            <div class="pb-ex">${ex.map(u => { const img = S.imageUrl ? S.imageUrl(u) : null; return img ? `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(img)}" alt="Exemple ${esc(name)}" loading="lazy"></a>` : `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(trunc(u, 50))}</a>`; }).join('')}</div></div>
+        </div>
+        <h3>Notes</h3><textarea id="pb-notes" rows="3" placeholder="Ce que les données t'apprennent sur ce setup…">${esc(pb.notes || '')}</textarea>
+        <div class="actions"><button class="btn primary" id="pb-save">Enregistrer la fiche</button></div>
+      </div>
+      ${c.ts.length ? `<div class="grid2">${groupTable('POI d\'exécution', g(t => t.execPoi))}${groupTable('Session', g(t => t.session))}${groupTable('Gestion', g(t => normMgmt(t.management)))}${groupTable('Type de sortie', g(t => t.exitType))}${groupTable('Direction', g(t => t.direction))}${groupTable('Killzone', g(t => t.killzone === 'Yes' ? 'Dans' : t.killzone === 'No' ? 'Hors' : ''))}</div>
+      <h2>Derniers trades</h2><div class="twrap"><table><thead><tr><th class="num">#</th><th>Date</th><th>Instrument</th><th>Dir.</th><th>POI exéc.</th><th class="num">R</th><th>Erreurs</th></tr></thead><tbody>
+      ${c.ts.slice(-15).reverse().map(t => `<tr class="click" data-n="${t.n}"><td class="num">${t.n}</td><td>${esc(t.date)}</td><td>${esc(t.instrument)}</td><td>${esc(t.direction)}</td><td>${esc(t.execPoi || '')}</td><td class="num ${cls(t.ret)}">${sgn(t.ret)}</td><td class="small">${esc((t.mistakeTags || []).join(', '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Aucun trade avec ce setup pour l\'instant.</p>'}`;
+    document.querySelectorAll('[data-pb]').forEach(b => b.onclick = () => { ui.pb = b.dataset.pb; renderSetups(); });
+    document.querySelectorAll('tr.click').forEach(r => r.onclick = () => openTrade(+r.dataset.n));
+    $('#pb-save').onclick = async () => { pbData()[name] = { rules: $('#pb-rules').value, examples: $('#pb-ex').value, notes: $('#pb-notes').value }; if (await save('Fiche setup enregistrée')) renderSetups(); };
+  }
+
+  /* ---- revues : synthèse des sous-périodes + pré-remplissage mensuel ---- */
+  const SUB_TYPE = { monthly: 'weekly', quarterly: 'monthly', yearly: 'quarterly' };
+  function subReviews(type, p) {
+    const sub = SUB_TYPE[type]; if (!sub) return [];
+    return (DB.reviews || []).filter(r => r.type === sub && r.start >= p.start && r.start <= p.end && Object.keys(r.answers || {}).length).sort((a, b) => a.start.localeCompare(b.start));
+  }
+  function reviewSynthesis(type, p) {
+    const subs = subReviews(type, p); if (!SUB_TYPE[type]) return '';
+    const sub = SUB_TYPE[type], qs = QUESTIONS[sub];
+    if (!subs.length) return `<h2>Synthèse des revues (${TYPES[sub].toLowerCase()})</h2><div class="note">Aucune revue ${TYPES[sub].toLowerCase()} enregistrée sur cette période.</div>`;
+    return `<h2>Synthèse des revues (${TYPES[sub].toLowerCase()}, ${subs.length})</h2><div class="card syn">${subs.map(r => `<details${subs.length <= 5 ? ' open' : ''}><summary><b>${esc(periodLabel(sub, r))}</b></summary><dl>${qs.filter(([k]) => isSet(r.answers[k])).map(([k, l]) => `<dt>${esc(l)}</dt><dd>${esc(r.answers[k])}</dd>`).join('')}</dl></details>`).join('')}</div>`;
+  }
+  function reviewPrefill(type, p, rv) {
+    if (type !== 'monthly' || Object.keys(rv.answers || {}).length) return {};
+    const subs = subReviews(type, p), out = {};
+    const join = k => subs.filter(r => isSet(r.answers[k])).map(r => `• (sem. ${r.start.slice(8)}/${r.start.slice(5, 7)}) ${r.answers[k]}`).join('\n');
+    if (subs.length) {
+      out.q1 = join('q3'); out.q2 = join('q2'); out.q3 = join('q1');
+      const pr = join('q4'); if (pr) out.q4 = 'Priorités des semaines :\n' + pr;
+    }
+    const days = {}; DB.trades.filter(t => t.date >= p.start && t.date <= p.end && S.filled(t.ret)).forEach(t => { (days[t.date] = days[t.date] || []).push(+t.ret); });
+    const dl = Object.entries(days).map(([d, a]) => [d, a.reduce((s, v) => s + v, 0), a.length]).sort((a, b) => b[1] - a[1]);
+    if (dl.length) { const b = dl[0], w = dl[dl.length - 1]; out.best = `${b[0]} : ${sgn(b[1])} R (${b[2]} trade${b[2] > 1 ? 's' : ''})`; if (dl.length > 1) out.worst = `${w[0]} : ${sgn(w[1])} R (${w[2]} trade${w[2] > 1 ? 's' : ''})`; }
+    Object.keys(out).forEach(k => { if (!out[k]) delete out[k]; });
+    return out;
+  }
+  function prefillNote(type, p, rv) {
+    const pre = reviewPrefill(type, p, rv); if (!Object.keys(pre).length) return '';
+    return `<div class="note">✍️ Pré-rempli à partir de ${subReviews(type, p).length} revue(s) hebdomadaire(s) et des trades du mois. Relis et reformule avant d'enregistrer.</div>`;
+  }
+
+  /* ================= CALENDRIER ÉCONOMIQUE ================= */
+  const CCY_FLAG = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', CHF: '🇨🇭', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦', CNY: '🇨🇳', ALL: '🌐' };
+  const ALL_CCY = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'NZD', 'CAD', 'CNY'];
+  const IMPACTS = [['High', 'Fort', 'hi'], ['Medium', 'Moyen', 'me'], ['Low', 'Faible', 'lo'], ['Holiday', 'Férié', 'ho']];
+  const impCls = i => (IMPACTS.find(x => x[0].toLowerCase() === String(i || '').toLowerCase()) || IMPACTS[2])[2];
+  const TZ_LIST = ['Indian/Antananarivo', 'Africa/Nairobi', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Abidjan', 'UTC', 'Europe/London', 'Europe/Paris', 'America/New_York', 'Asia/Dubai', 'Asia/Tokyo', 'Australia/Sydney'];
+  const NEWS_ARCH = 'news_archive_v1', NEWS_META = 'news_fetch_v1';
+  const NUI = { month: '', day: '', sel: '', q: '', settings: false };
+  let NEWS_EVENTS = [], NEWS_STATUS = '', NEWS_LOADING = null, _nsSave = null;
+  function newsCfg() {
+    DB.newsFilter = DB.newsFilter || {}; const c = DB.newsFilter;
+    if (!c.tz) c.tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    if (!c.currencies || !c.currencies.length) c.currencies = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'NZD', 'CAD'];
+    if (!c.impacts) c.impacts = c.impact === '3' ? ['High'] : c.impact === '2,3' ? ['High', 'Medium'] : ['High', 'Medium', 'Low', 'Holiday'];
+    return c;
+  }
+  function newsBlockCfg() { DB.newsBlock = Object.assign({ enabled: false, currencies: ['USD', 'EUR', 'GBP'], window: 15, behavior: 'both' }, DB.newsBlock || {}); return DB.newsBlock; }
+  function saveNewsSoon(msg) { clearTimeout(_nsSave); _nsSave = setTimeout(() => save(msg || 'Préférences du calendrier enregistrées'), 1200); }
+  function archLoad() { try { return JSON.parse(localStorage.getItem(NEWS_ARCH)) || {}; } catch (e) { return {}; } }
+  function archSave(a) { try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e) { const ks = Object.keys(a).sort((x, y) => a[x].ts - a[y].ts); ks.slice(0, Math.ceil(ks.length / 3)).forEach(k => delete a[k]); try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e2) {} } }
+  function normEv(e) { const ts = new Date(e.date).getTime(); return { title: String(e.title || e.event || '').trim(), country: String(e.country || e.currency || '').toUpperCase(), date: e.date, ts, impact: e.impact || 'Low', forecast: e.forecast || '', previous: e.previous || '', actual: e.actual || '' }; }
+  const evKey = e => e.country + '|' + e.title + '|' + new Date(e.ts).toISOString().slice(0, 16);
+  function fetchFF(url) {
+    const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const get = u => fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    return get(url).catch(() => get(proxy));
+  }
+  function loadNewsEvents(force) {
+    const arch = archLoad(); let meta = {}; try { meta = JSON.parse(localStorage.getItem(NEWS_META)) || {}; } catch (e) {}
+    const done = () => { NEWS_EVENTS = Object.values(arch).filter(e => !isNaN(e.ts)).sort((a, b) => a.ts - b.ts); return NEWS_EVENTS; };
+    if (!force && meta.at && Date.now() - meta.at < 30 * 60e3 && Object.keys(arch).length) return Promise.resolve(done());
+    if (NEWS_LOADING) return NEWS_LOADING;
+    const urls = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json', 'https://nfs.faireconomy.media/ff_calendar_nextweek.json'];
+    NEWS_LOADING = Promise.all(urls.map(u => fetchFF(u).catch(() => null))).then(res => {
+      let got = 0;
+      res.forEach(list => { if (Array.isArray(list)) list.forEach(e => { const n = normEv(e); if (n.title && !isNaN(n.ts)) { const k = evKey(n); arch[k] = Object.assign(arch[k] || {}, n); got++; } }); });
+      if (got) { const lim = Date.now() - 400 * 864e5; Object.keys(arch).forEach(k => { if (arch[k].ts < lim) delete arch[k]; }); archSave(arch); try { localStorage.setItem(NEWS_META, JSON.stringify({ at: Date.now() })); } catch (e) {} NEWS_STATUS = ''; }
+      else NEWS_STATUS = 'Source des news indisponible pour le moment (réseau ou limite de requêtes). Affichage des données en cache.';
+      NEWS_LOADING = null; return done();
+    });
+    return NEWS_LOADING;
+  }
+  function tzParts(ts, tz) {
+    const p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ts)).forEach(x => p[x.type] = x.value);
+    return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === '24' ? '00' : p.hour}:${p.minute}` };
+  }
+  function tzToTs(date, time, tz) {   // date + heure locales (dans tz) -> timestamp
+    const [y, m, d] = date.split('-').map(Number), mm = toMin(time); if (mm === null) return NaN;
+    const guess = Date.UTC(y, m - 1, d, Math.floor(mm / 60), mm % 60);
+    const p = tzParts(guess, tz), back = Date.UTC(+p.date.slice(0, 4), +p.date.slice(5, 7) - 1, +p.date.slice(8), +p.time.slice(0, 2), +p.time.slice(3));
+    return guess - (back - guess);
+  }
+  function newsFiltered() { const c = newsCfg(); return NEWS_EVENTS.filter(e => (c.currencies.indexOf(e.country) >= 0 || e.country === 'ALL') && c.impacts.some(i => i.toLowerCase() === String(e.impact).toLowerCase())); }
+  function blockWindows(evs) {
+    const b = newsBlockCfg(); if (!b.enabled) return [];
+    const w = (+b.window || 15) * 60e3, out = [];
+    evs.filter(e => String(e.impact).toLowerCase() === 'high' && b.currencies.indexOf(e.country) >= 0).forEach(e => {
+      const a = e.ts - (b.behavior === 'after' ? 0 : w), z = e.ts + (b.behavior === 'before' ? 0 : w);
+      const last = out[out.length - 1];
+      if (last && a <= last.to) { last.to = Math.max(last.to, z); last.evs.push(e); } else out.push({ from: a, to: z, evs: [e] });
+    });
+    return out;
+  }
+  function newsBlockAt(ts) { if (isNaN(ts)) return null; return blockWindows(NEWS_EVENTS).find(w => ts >= w.from && ts <= w.to) || null; }
+  function newsBlockPill() {
+    const w = newsBlockAt(Date.now()); if (!w) return '';
+    const tz = newsCfg().tz;
+    return `<a class="gr-pill gr-pill-danger" href="#/news" title="${esc(w.evs.map(e => e.country + ' ' + e.title).join(' · '))}">🔒 Trading bloqué jusqu'à ${tzParts(w.to, tz).time} (${esc(w.evs[0].country + ' ' + trunc(w.evs[0].title, 24))})</a>`;
+  }
+  const EV_DESC = [
+    [/\bcpi\b|consumer price/i, 'Indice des prix à la consommation : mesure l\'inflation payée par les ménages. Un chiffre au-dessus des attentes soutient en général la devise (anticipation de taux plus hauts).'],
+    [/\bppi\b|producer price/i, 'Indice des prix à la production : inflation des prix de vente des producteurs, souvent annonciatrice du CPI.'],
+    [/non-farm|nfp/i, 'Créations d\'emplois hors secteur agricole : l\'un des chiffres les plus suivis du marché, forte volatilité sur l\'USD.'],
+    [/unemployment|jobless|claimant/i, 'Chômage / inscriptions au chômage : santé du marché du travail.'],
+    [/fomc|federal funds|rate statement|cash rate|official bank rate|main refinancing|policy rate|interest rate|monetary policy/i, 'Décision ou communication de politique monétaire : peut provoquer de très forts mouvements, avant et pendant la conférence de presse.'],
+    [/press conference|speaks|testifies/i, 'Discours d\'un responsable de banque centrale ou du gouvernement : volatilité imprévisible pendant toute la durée de l\'intervention.'],
+    [/\bgdp\b/i, 'Produit intérieur brut : mesure la croissance de l\'économie.'],
+    [/retail sales/i, 'Ventes au détail : consommation des ménages.'],
+    [/\bpmi\b/i, 'Indice des directeurs d\'achat : au-dessus de 50 = expansion, en dessous = contraction.'],
+    [/\bpce\b/i, 'Dépenses de consommation (PCE) : mesure d\'inflation préférée de la Fed.'],
+    [/trade balance/i, 'Balance commerciale : exportations moins importations.'],
+    [/sentiment|confidence/i, 'Indice de confiance : moral des consommateurs ou des entreprises.'],
+    [/bank holiday|holiday/i, 'Jour férié : liquidité réduite sur la devise concernée.'],
+  ];
+  const evDesc = t => (EV_DESC.find(([re]) => re.test(t)) || [null, ''])[1];
+  function relTime(ts) { const d = Math.round((ts - Date.now()) / 60000); if (Math.abs(d) < 1) return 'maintenant'; const a = Math.abs(d), s = a < 60 ? a + ' mn' : a < 1440 ? Math.round(a / 60) + ' h' : Math.round(a / 1440) + ' j'; return d > 0 ? 'dans ' + s : 'il y a ' + s; }
+  const fmtDayLong = (iso, tz) => new Date(iso + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const addMonth = (ym, k) => { const d = new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + k, 1)); return d.toISOString().slice(0, 7); };
+
+  function renderNews() {
+    const nc = $('#news-container'); nc.hidden = false; $('#main').hidden = true;
+    const c = newsCfg(), tz = c.tz, today = tzParts(Date.now(), tz).date;
+    if (!NUI.day) NUI.day = today; if (!NUI.month) NUI.month = NUI.day.slice(0, 7);
+    const evs = newsFiltered(), byDay = {};
+    evs.forEach(e => { const d = tzParts(e.ts, tz).date; (byDay[d] = byDay[d] || []).push(e); });
+    const blocks = blockWindows(NEWS_EVENTS);
+    const blockDays = new Set(blocks.map(w => tzParts(w.evs[0].ts, tz).date));
+    // grille : 6 semaines à partir du lundi précédant le 1er du mois
+    const first = NUI.month + '-01', dow = (new Date(first + 'T00:00:00Z').getUTCDay() + 6) % 7, start = addDaysISO(first, -dow);
+    const cells = []; for (let i = 0; i < 42; i++) cells.push(addDaysISO(start, i));
+    const dim = new Date(Date.UTC(+NUI.month.slice(0, 4), +NUI.month.slice(5, 7), 0)).getUTCDate(), weeks = Math.ceil((dow + dim) / 7);
+    const monthLabel = new Date(first + 'T00:00:00Z').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const cell = d => {
+      const list = byDay[d] || [], cnt = { hi: 0, me: 0, lo: 0, ho: 0 }; list.forEach(e => cnt[impCls(e.impact)]++);
+      const top = cnt.hi ? 'hi' : cnt.me ? 'me' : '';
+      const we = [5, 6].indexOf((new Date(d + 'T00:00:00Z').getUTCDay() + 6) % 7) >= 0;
+      const label = +d.slice(8) === 1 && d.slice(0, 7) !== NUI.month ? new Date(d + 'T00:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : String(+d.slice(8));
+      return `<button class="nc-cell ${d.slice(0, 7) !== NUI.month ? 'out' : ''} ${we ? 'we' : ''} ${top ? 'b-' + top : ''} ${d === NUI.day ? 'sel' : ''}" data-day="${d}">
+        <span class="nc-num">${d === today ? `<span class="nc-today"><span class="lbl">Aujourd'hui </span>${+d.slice(8)}</span>` : esc(label)}</span>
+        <span class="nc-cnt">${['hi', 'me', 'lo', 'ho'].filter(k => cnt[k]).map(k => `<span><i class="dot ${k}"></i>${cnt[k]}</span>`).join('')}</span>
+        ${blockDays.has(d) ? '<span class="nc-lock" title="Blocage news ce jour">🔒</span>' : ''}</button>`;
+    };
+    // liste du jour
+    const q = NUI.q.toLowerCase();
+    const dayEvs = (byDay[NUI.day] || []).filter(e => !q || (e.country + ' ' + e.title).toLowerCase().indexOf(q) >= 0);
+    const dayBlocks = blocks.filter(w => tzParts(w.from, tz).date === NUI.day || tzParts(w.to, tz).date === NUI.day);
+    let rows = '', bi = 0;
+    dayEvs.forEach(e => {
+      while (bi < dayBlocks.length && dayBlocks[bi].from <= e.ts) { const w = dayBlocks[bi++]; rows += `<div class="nc-lockrow">🔒 ${tzParts(w.from, tz).time} · Trading bloqué jusqu'à ${tzParts(w.to, tz).time}</div>`; }
+      const k = evKey(e), t = tzParts(e.ts, tz).time;
+      rows += `<button class="nc-ev ${k === NUI.sel ? 'on' : ''} ${e.ts < Date.now() ? 'past' : ''}" data-ev="${esc(k)}"><span class="t">${/^00:00$/.test(t) && /holiday/i.test(e.impact) ? 'Jour' : t}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`;
+    });
+    const sel = NUI.sel && NEWS_EVENTS.find(e => evKey(e) === NUI.sel);
+    const hist = sel ? NEWS_EVENTS.filter(e => e.country === sel.country && e.title === sel.title).sort((a, b) => b.ts - a.ts) : [];
+    const b = newsBlockCfg();
+    const isToday = NUI.day === today;
+    nc.innerHTML = `<div class="nc-wrap">
+      <div class="nc-head"><h1>Calendrier économique</h1>
+        <div class="nc-tools">
+          <label class="nc-tz">Fuseau<select id="nc-tz">${[...new Set([tz].concat(TZ_LIST))].map(z => `<option value="${esc(z)}"${z === tz ? ' selected' : ''}>${esc(z.replace('_', ' '))} (${tzParts(Date.now(), z).time})</option>`).join('')}</select></label>
+          <button class="btn" id="nc-block">${b.enabled ? '🔒 Blocage news : ' + b.window + ' mn' : '🔓 Blocage news'}</button>
+          <button class="btn" id="nc-refresh">Actualiser</button>
+        </div></div>
+      <div class="nc-filters">
+        <div class="nc-chips">${ALL_CCY.map(x => `<button class="nc-chip ${c.currencies.indexOf(x) >= 0 ? 'on' : ''}" data-ccy="${x}">${CCY_FLAG[x]} ${x}</button>`).join('')}</div>
+        <div class="nc-chips">${IMPACTS.map(([k, l, cl]) => `<button class="nc-chip ${c.impacts.indexOf(k) >= 0 ? 'on' : ''}" data-imp="${k}"><i class="dot ${cl}"></i> ${l}</button>`).join('')}</div>
+      </div>
+      ${NEWS_STATUS ? `<div class="note">${esc(NEWS_STATUS)}</div>` : ''}
+      <div class="nc-layout">
+        <div class="nc-cal card">
+          <div class="nc-calhead"><button class="btn sm" id="nc-pm" aria-label="Mois précédent">‹</button><button class="btn sm" id="nc-nm" aria-label="Mois suivant">›</button><h2>${esc(monthLabel)}</h2></div>
+          <div class="nc-grid">${['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(d => `<div class="nc-wd">${d}</div>`).join('')}${cells.slice(0, weeks * 7).map(cell).join('')}</div>
+        </div>
+        <div class="nc-day card">
+          <div class="nc-dayhead"><button class="btn sm" id="nc-pd" aria-label="Jour précédent">‹</button><button class="btn sm" id="nc-nd" aria-label="Jour suivant">›</button><h2>${esc(fmtDayLong(NUI.day))}${isToday ? ' · Aujourd\'hui' : ''}</h2><button class="btn sm" id="nc-today" ${isToday ? 'disabled' : ''}>Aujourd'hui</button></div>
+          <input id="nc-q" placeholder="Rechercher (devise, événement)…" value="${esc(NUI.q)}">
+          <div class="nc-list">${rows || `<p class="muted small pad">${NEWS_EVENTS.length ? 'Aucun événement pour ce jour avec ces filtres.' : 'Chargement des événements…'}</p>`}</div>
+          ${sel ? `<div class="nc-detail" id="nc-detail">
+            <div class="nc-dethead"><h3>${CCY_FLAG[sel.country] || ''} ${esc(sel.title)}</h3><button class="btn sm" id="nc-close" aria-label="Fermer">×</button></div>
+            <p class="small">🕒 ${esc(fmtDayLong(tzParts(sel.ts, tz).date))} · ${tzParts(sel.ts, tz).time} (${esc(tz)}) · <b>${relTime(sel.ts)}</b></p>
+            <div class="nc-facts"><div><span>Devise</span>${esc(sel.country)}</div><div><span>Impact</span><i class="dot ${impCls(sel.impact)}"></i> ${esc((IMPACTS.find(x => x[0].toLowerCase() === String(sel.impact).toLowerCase()) || [0, sel.impact])[1])}</div><div><span>Prévision</span>${esc(sel.forecast || '–')}</div><div><span>Précédent</span>${esc(sel.previous || '–')}</div>${sel.actual ? `<div><span>Réel</span>${esc(sel.actual)}</div>` : ''}</div>
+            ${evDesc(sel.title) ? `<p class="small">${esc(evDesc(sel.title))}</p>` : ''}
+            ${hist.length > 1 ? `<table class="nc-hist"><thead><tr><th>Date</th><th class="num">Réel*</th><th class="num">Prévision</th><th class="num">Précédent</th></tr></thead><tbody>${hist.slice(0, 8).map((h, i) => `<tr><td>${esc(tzParts(h.ts, tz).date)}</td><td class="num">${esc(h.actual || (i > 0 ? hist[i - 1].previous : '') || '–')}</td><td class="num">${esc(h.forecast || '–')}</td><td class="num">${esc(h.previous || '–')}</td></tr>`).join('')}</tbody></table><p class="muted small">* Réel = valeur « précédent » annoncée à la publication suivante (la source ne fournit pas le réel directement).</p>` : ''}
+          </div>` : ''}
+        </div>
+      </div>
+      <p class="muted small">Source : flux ForexFactory (semaine en cours et suivante). L'historique se construit sur cet appareil au fil des semaines. Heures affichées dans le fuseau ${esc(tz)}. <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Ouvrir investing.com</a></p>
+      ${NUI.settings ? newsSettingsHTML() : ''}
+    </div>`;
+    const go = () => renderNews();
+    nc.querySelectorAll('[data-day]').forEach(x => x.onclick = () => { NUI.day = x.dataset.day; NUI.sel = ''; if (NUI.day.slice(0, 7) !== NUI.month) NUI.month = NUI.day.slice(0, 7); go(); });
+    nc.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => { NUI.sel = NUI.sel === x.dataset.ev ? '' : x.dataset.ev; go(); });
+    nc.querySelectorAll('[data-ccy]').forEach(x => x.onclick = () => { const a = newsCfg().currencies, i = a.indexOf(x.dataset.ccy); if (i >= 0) { if (a.length > 1) a.splice(i, 1); } else a.push(x.dataset.ccy); saveNewsSoon(); go(); });
+    nc.querySelectorAll('[data-imp]').forEach(x => x.onclick = () => { const a = newsCfg().impacts, i = a.indexOf(x.dataset.imp); if (i >= 0) { if (a.length > 1) a.splice(i, 1); } else a.push(x.dataset.imp); saveNewsSoon(); go(); });
+    $('#nc-tz').onchange = e => { newsCfg().tz = e.target.value; NUI.day = ''; NUI.month = ''; save('Fuseau horaire enregistré'); go(); };
+    $('#nc-pm').onclick = () => { NUI.month = addMonth(NUI.month, -1); go(); };
+    $('#nc-nm').onclick = () => { NUI.month = addMonth(NUI.month, 1); go(); };
+    $('#nc-pd').onclick = () => { NUI.day = addDaysISO(NUI.day, -1); NUI.month = NUI.day.slice(0, 7); NUI.sel = ''; go(); };
+    $('#nc-nd').onclick = () => { NUI.day = addDaysISO(NUI.day, 1); NUI.month = NUI.day.slice(0, 7); NUI.sel = ''; go(); };
+    $('#nc-today').onclick = () => { NUI.day = today; NUI.month = today.slice(0, 7); NUI.sel = ''; go(); };
+    $('#nc-q').onchange = e => { NUI.q = e.target.value; go(); };
+    $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true).then(() => { if (view === 'news') go(); }); };
+    $('#nc-block').onclick = () => { NUI.settings = true; go(); };
+    if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
+    if (NUI.settings) wireNewsSettings();
+    if (!NEWS_EVENTS.length && !NEWS_LOADING) loadNewsEvents().then(() => { if (view === 'news') go(); });
+  }
+  function newsSettingsHTML() {
+    const b = newsBlockCfg();
+    const desc = (b.behavior === 'before' ? `${b.window} mn avant` : b.behavior === 'after' ? `${b.window} mn après` : `${b.window} mn avant et ${b.window} mn après`) + ` les news à fort impact ${b.currencies.join(', ')}`;
+    return `<div class="nc-overlay"><div class="nc-modal card" role="dialog" aria-label="Blocage news">
+      <div class="nc-dethead"><h3>Blocage du trading autour des news</h3><button class="btn sm" id="ns-x" aria-label="Fermer">×</button></div>
+      <label class="nc-switch"><input type="checkbox" id="ns-on" ${b.enabled ? 'checked' : ''}> <span><b>Activer le blocage news</b><br><span class="muted small">Pastille rouge pendant la fenêtre, avertissement si tu enregistres un trade dedans (marqué « Garde-fou : news »).</span></span></label>
+      <div class="ns-sec"><div class="ms-title">Devises</div><div class="nc-chips">${ALL_CCY.map(x => `<button class="nc-chip ${b.currencies.indexOf(x) >= 0 ? 'on' : ''}" data-bccy="${x}">${CCY_FLAG[x]} ${x}</button>`).join('')}</div></div>
+      <div class="ns-sec"><div class="ms-title">Fenêtre</div><div class="nc-seg">${[5, 10, 15, 30, 60].map(m => `<button class="${+b.window === m ? 'on' : ''}" data-bw="${m}">${m} mn</button>`).join('')}</div></div>
+      <div class="ns-sec"><div class="ms-title">Comportement</div><select id="ns-beh"><option value="both"${b.behavior === 'both' ? ' selected' : ''}>Avant et après</option><option value="before"${b.behavior === 'before' ? ' selected' : ''}>Avant seulement</option><option value="after"${b.behavior === 'after' ? ' selected' : ''}>Après seulement</option></select></div>
+      <div class="note">🕒 Bloque les nouveaux trades ${esc(desc)}.</div>
+      <div class="actions"><button class="btn" id="ns-cancel">Annuler</button><button class="btn primary" id="ns-save">Enregistrer</button></div>
+    </div></div>`;
+  }
+  let _nsDraft = null;
+  function wireNewsSettings() {
+    const b = newsBlockCfg(); if (!_nsDraft) _nsDraft = JSON.parse(JSON.stringify(b));
+    const redraw = () => { DB.newsBlock = _nsDraft; renderNews(); };
+    $('#ns-on').onchange = e => { _nsDraft.enabled = e.target.checked; redraw(); };
+    document.querySelectorAll('[data-bccy]').forEach(x => x.onclick = () => { const a = _nsDraft.currencies, i = a.indexOf(x.dataset.bccy); if (i >= 0) a.splice(i, 1); else a.push(x.dataset.bccy); redraw(); });
+    document.querySelectorAll('[data-bw]').forEach(x => x.onclick = () => { _nsDraft.window = +x.dataset.bw; redraw(); });
+    $('#ns-beh').onchange = e => { _nsDraft.behavior = e.target.value; redraw(); };
+    const close = () => { NUI.settings = false; _nsDraft = null; renderNews(); };
+    $('#ns-x').onclick = $('#ns-cancel').onclick = () => { DB.newsBlock = NUI._bk || DB.newsBlock; delete NUI._bk; close(); };
+    if (!NUI._bk) NUI._bk = JSON.parse(JSON.stringify(b));
+    $('#ns-save').onclick = async () => { DB.newsBlock = _nsDraft; delete NUI._bk; NUI.settings = false; _nsDraft = null; await save('Blocage news enregistré'); updateStatusBar(); renderNews(); };
+  }
+  function hideNews() { const nc = $('#news-container'); if (nc) nc.hidden = true; $('#main').hidden = false; }
+
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {
-    const cols = ['n', 'date', 'instrument', 'direction', 'session', 'duration', 'style', 'entry', 'sl', 'tp', 'risk', 'ret', '_result', '_cum', '_dd', '_grade', 'planFollow', 'fomo', 'overtrade', 'revenge', 'guardrailsBroken', 'management', 'mistakes', 'notes', 'improvement', 'setup', 'corr1', 'corr2', 'bias', 'poi', 'killzone', 'sweep', 'riskRespected', 'invalidation', 'entryEmotion', 'exitEmotion'];
+    const cols = ['n', 'date', 'instrument', 'direction', 'session', 'duration', 'entry', 'sl', 'tp', 'risk', 'ret', '_result', '_cum', '_dd', '_grade', 'planFollow', 'fomo', 'overtrade', 'revenge', 'guardrailsBroken', 'management', 'mistakes', 'notes', 'improvement', 'bias', 'poi', 'killzone', 'sweep'];
     cols.push('entryTime', 'exitTime', 'killzoneAuto', 'setup', 'execPoi', 'plannedR', 'exitType', 'mae', 'mfe', 'mistakeTags', 'emoEntry', 'emoEntryLvl', 'emoEntryNote', 'emoDuring', 'emoDuringLvl', 'emoDuringNote', 'emoExit', 'emoExitLvl', 'emoExitNote', 'preLockedAt');
     const seen = {}; for (let i = 0; i < cols.length; i++) { if (seen[cols[i]]) cols.splice(i--, 1); else seen[cols[i]] = 1; }
     const q = v => { v = v === null || v === undefined ? '' : Array.isArray(v) ? v.join(' | ') : String(v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    const head = [...cols, ...SLOTS.map(([, l]) => 'screens_' + l)];
-    return '\ufeff' + [head.join(','), ...enriched().map(t => [...cols.map(c => q(t[c])), ...SLOTS.map(([k]) => q(((t.screens || {})[k] || []).join(' ')))].join(','))].join('\n');
+    const head = [...cols.slice(0, 11), 'agg_entry', 'agg_sl', 'agg_tp', 'agg_risk', 'agg_ret', 'delta_agg_minus_cons', ...cols.slice(11), ...SLOTS.map(([, l]) => 'screens_' + l)];
+    return '\ufeff' + [head.join(','), ...enriched().map(t => { const a = t.agg || {}, d = delta(t);
+      return [...cols.slice(0, 11).map(c => q(t[c])), q(a.entry), q(a.sl), q(a.tp), q(a.risk), q(a.ret), q(d), ...cols.slice(11).map(c => q(t[c])), ...SLOTS.map(([k]) => q(((t.screens || {})[k] || []).join(' ')))].join(','); })].join('\n');
   }
-  const LISTS = [['instruments', 'Instruments'], ['sessions', 'Sessions'], ['entries', 'Modèles d\'entrée'], ['sl', 'Stop loss'], ['tp', 'Take profit'], ['styles', 'Styles']];
+  const LISTS = [['instruments', 'Instruments'], ['sessions', 'Sessions'], ['entries', 'Entrées conservatives'], ['aggEntries', 'Entrées aggressives'], ['sl', 'Stop loss'], ['tp', 'Take profit']];
   function renderData() {
     const nShots = DB.trades.reduce((a, t) => a + SLOTS.reduce((b, [k]) => b + ((t.screens || {})[k] || []).length, 0), 0);
     $('#main').innerHTML = `
       <h1>Données</h1>
-      <div class="card"><p><b>${DB.trades.length}</b> trades · <b>${DB.reviews.length}</b> revue(s) · <b>${nShots}</b> lien(s) de capture · stockés dans <code>journal-trading.json</code> sur votre Google Drive personnel. Les données sont aussi cachées localement dans le navigateur pour un accès hors connexion.</p>
+      <div class="card"><p><b>${DB.trades.length}</b> trades · <b>${DB.reviews.length}</b> revue(s) · <b>${nShots}</b> lien(s) de capture · stockés dans <code>journal-backtest.json</code> sur votre Google Drive personnel. Les données sont aussi cachées localement dans le navigateur pour un accès hors connexion.</p>
         <div class="bar"><button class="btn" id="x-json">Exporter JSON</button><button class="btn" id="x-csv">Exporter CSV (Excel)</button><label style="flex-direction:row;align-items:center;gap:8px"><span class="btn" style="pointer-events:none">Importer un JSON…</span><input type="file" id="x-imp" accept=".json,application/json"></label></div>
         <p class="muted small">L'import REMPLACE tout le journal actuel (la sauvegarde du jour est conservée).</p></div>
       ${cleanupHTML()}
       <h2>Listes proposées dans le formulaire</h2>
       <div class="card"><div class="form">${LISTS.concat(V3_LISTS).map(([k, l]) => `<label>${l} (une valeur par ligne)<textarea id="l-${k}" style="min-height:110px">${esc(list(k).join('\n'))}</textarea></label>`).join('')}</div><div class="actions"><button class="btn primary" id="l-save">Enregistrer les listes</button></div>
       <p class="muted small">Les valeurs déjà utilisées dans vos trades sont toujours proposées en plus de ces listes.</p></div>`;
-    $('#x-json').onclick = () => download(`journal-${todayISO()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+    $('#x-json').onclick = () => download(`backtest-${todayISO()}.json`, JSON.stringify(DB, null, 1), 'application/json');
     cleanupWire();
-    $('#x-csv').onclick = () => download(`journal-${todayISO()}.csv`, toCSV(), 'text/csv');
+    $('#x-csv').onclick = () => download(`backtest-${todayISO()}.csv`, toCSV(), 'text/csv');
     $('#x-imp').onchange = async e => {
       const file = e.target.files[0]; if (!file) return;
       try {
@@ -2538,13 +2929,14 @@
   }
 
   /* ---------- routage ---------- */
+  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'setups', 'bvl', 'data'];
   function render() {
     hideNews(); hideTrading(); updateStatusBar();
-    $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de trading';
+    $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
-    ({ dashboard: renderDashboard, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
+    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, setups: renderSetups, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
   }
-  function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = ['dashboard', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'bvl', 'data'].includes(v) ? v : 'dashboard'; render(); }
+  function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = VIEWS.includes(v) ? v : 'dashboard'; render(); }
   window.addEventListener('hashchange', route);
   document.addEventListener('keydown', e => {
     if (LB) { if (e.key === 'Escape') closeLightbox(); else if (e.key === 'ArrowLeft' && LB.items.length > 1) step(-1); else if (e.key === 'ArrowRight' && LB.items.length > 1) step(1); return; }
