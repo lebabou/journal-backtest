@@ -283,3 +283,5 @@ nav{flex:1 1 100%;order:5;overflow-x:auto;min-width:0;scrollbar-width:thin;paddi
 nav a{white-space:nowrap;flex:none}
 .form .row.emo-grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
 .twrap table.bvl td .muted.small{font-size:11px;white-space:nowrap}
+.gr-pill-review{background:rgba(245,158,11,.16);color:#b45309;border:1px solid rgba(245,158,11,.5);text-decoration:none;cursor:pointer}
+.gr-alert a{color:inherit;font-weight:600}

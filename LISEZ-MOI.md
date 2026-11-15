@@ -1,9 +1,9 @@
-# journal-backtest
+# journal-trading
 
 ## Comment utiliser
-1. Mettez tous les fichiers dans un dépôt GitHub nommé `journal-backtest`
+1. Mettez tous les fichiers dans un dépôt GitHub nommé `journal-trading`
 2. Activez GitHub Pages (Settings → Pages → Source: Deploy from a branch → main → / (root))
-3. Ouvrez `https://lebabou.github.io/journal-backtest/`
+3. Ouvrez `https://lebabou.github.io/journal-trading/`
 4. Cliquez "Connexion Google" et autorisez l'accès
 5. Sur Android : menu ⋮ → "Ajouter à l'écran d'accueil"
 
@@ -17,5 +17,5 @@
 - `manifest.json` — configuration PWA (icône sur l'écran d'accueil)
 
 ## Données
-Vos données sont dans `journal-backtest.json` sur votre Google Drive personnel.
+Vos données sont dans `journal-trading.json` sur votre Google Drive personnel.
 Aucun serveur, aucun tiers. L'application tourne entièrement dans votre navigateur.
