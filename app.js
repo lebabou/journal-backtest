@@ -2737,15 +2737,26 @@
   function normBQ(e) {
     const ts = new Date(e.time || e.date || e.datetime).getTime();
     const imp = String(e.type || '').toLowerCase() === 'holiday' ? 'Holiday' : (IMP_MAP[String(e.importance || e.impact || '').toLowerCase()] || 'Low');
-    return { title: String(e.name || e.title || e.event || '').trim(), country: String(e.currency || e.country || '').toUpperCase(), date: e.time || e.date, ts, impact: imp,
+    return { title: String(e.name || e.title || e.event || '').trim(), country: String(e.currency || e.country || '').toUpperCase(), date: e.time || e.date, ts, impact: imp, rawImp: String(e.importance || e.impact || ''),
       forecast: fmtVal(e.forecast, e), previous: fmtVal(e.revisedPrevious != null ? e.revisedPrevious : e.previous, e), actual: fmtVal(e.actual, e),
       eventId: e.eventId || e.id || '', allDay: e.timeMode && e.timeMode !== 'exact', src: 'bq' };
   }
   function normEv(e) { const ts = new Date(e.date).getTime(); return { title: String(e.title || e.event || '').trim(), country: String(e.country || e.currency || '').toUpperCase(), date: e.date, ts, impact: e.impact || 'Low', forecast: e.forecast || '', previous: e.previous || '', actual: e.actual || '', src: 'ff' }; }
   const evKey = e => e.src + '|' + e.country + '|' + e.title + '|' + new Date(e.ts).toISOString().slice(0, 16);
+  const MAJOR_RE = /\b(core )?(cpi|ppi|hicp)\b|consumer price index|producer price index|non.?farm|unemployment rate|interest rate decision|rate decision|fed(eral)? funds|fomc|monetary policy (statement|report|summary)|press conference|retail sales|\bgdp\b|gross domestic product|\bpce\b|ism (manufacturing|services|non.?manufacturing)|average (hourly )?earnings|cash rate|official bank rate|main refinancing|deposit facility rate/i;
+  const MAJOR_CCY = ['USD', 'EUR', 'GBP', 'JPY', 'CHF', 'AUD', 'NZD', 'CAD'];
+  const ovKey = e => e.country + '|' + String(e.title).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  function effImpact(e) {
+    const c = DB && DB.newsFilter || {}, ov = (c.impOverride || {})[ovKey(e)];
+    if (ov) return ov;
+    if (c.majorHigh !== false && e.srcImpact !== 'Holiday' && MAJOR_CCY.indexOf(e.country) >= 0 && MAJOR_RE.test(e.title)) return 'High';
+    return e.srcImpact;
+  }
+  function applyImpacts() { NEWS_EVENTS.forEach(e => { e.srcImpact = e.srcImpact || e.impact; e.impact = effImpact(e); }); }
   function rebuildEvents(arch) {
     const bqDays = new Set(Object.values(arch).filter(e => e.src === 'bq').map(e => new Date(e.ts).toISOString().slice(0, 10)));
     NEWS_EVENTS = Object.values(arch).filter(e => !isNaN(e.ts) && !(e.src === 'ff' && bqDays.has(new Date(e.ts).toISOString().slice(0, 10)))).sort((a, b) => a.ts - b.ts);
+    applyImpacts();
     return NEWS_EVENTS;
   }
   function getMeta() { try { return JSON.parse(localStorage.getItem(NEWS_META)) || {}; } catch (e) { return {}; } }
@@ -2786,7 +2797,9 @@
   function newsDiag() {
     const d = (getMeta().diag) || {}, f = x => x ? (x.err ? 'injoignable' : x.n + ' événements' + (x.span ? ` (${x.span[0].slice(8)}/${x.span[0].slice(5, 7)} → ${x.span[1].slice(8)}/${x.span[1].slice(5, 7)})` : '')) : 'non interrogé';
     let route = ''; try { route = localStorage.getItem(NEWS_ROUTE_KEY) || ''; } catch (e) {}
-    return `Diagnostic : biquote.io ${f(d.bq)} · ForexFactory ${f(d.ff)}${route ? ' · voie : ' + route : ''}`;
+    const cnt = {}; NEWS_EVENTS.forEach(e => { cnt[e.impact] = (cnt[e.impact] || 0) + 1; });
+    const unk = [...new Set(NEWS_EVENTS.filter(e => e.src === 'bq' && e.rawImp && !IMP_MAP[e.rawImp.toLowerCase()]).map(e => e.rawImp))];
+    return `Diagnostic : biquote.io ${f(d.bq)} · ForexFactory ${f(d.ff)}${route ? ' · voie : ' + route : ''} · impacts : fort ${cnt.High || 0}, moyen ${cnt.Medium || 0}, faible ${cnt.Low || 0}, férié ${cnt.Holiday || 0}${unk.length ? ' · valeurs d\'impact inconnues : ' + unk.join(', ') : ''}`;
   }
   function loadHistory(e) {
     if (!e.eventId || HIST[e.eventId]) return Promise.resolve(HIST[e.eventId] || null);
@@ -2866,7 +2879,8 @@
     };
     // liste du jour
     const q = NUI.q.toLowerCase();
-    const dayEvs = (byDay[NUI.day] || []).filter(e => !q || (e.country + ' ' + e.title).toLowerCase().indexOf(q) >= 0);
+    const dayEvs = q ? [] : (byDay[NUI.day] || []);
+    const found = q ? NEWS_EVENTS.filter(e => (e.country + ' ' + e.title).toLowerCase().indexOf(q) >= 0).sort((a, b) => b.ts - a.ts).slice(0, 80) : [];
     const dayBlocks = blocks.filter(w => tzParts(w.from, tz).date === NUI.day || tzParts(w.to, tz).date === NUI.day);
     let rows = '', bi = 0;
     dayEvs.forEach(e => {
@@ -2874,6 +2888,7 @@
       const k = evKey(e), t = tzParts(e.ts, tz).time;
       rows += `<button class="nc-ev ${k === NUI.sel ? 'on' : ''} ${e.ts < Date.now() ? 'past' : ''}" data-ev="${esc(k)}"><span class="t">${e.allDay || (/^00:00$/.test(t) && /holiday/i.test(e.impact)) ? 'Jour' : t}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`;
     });
+    if (q) rows = found.length ? `<div class="muted small pad">${found.length} résultat(s) sur toute la période chargée, sans filtre de devise ni d'impact</div>` + found.map(e => { const k = evKey(e), pt = tzParts(e.ts, tz); return `<button class="nc-ev ${k === NUI.sel ? 'on' : ''}" data-ev="${esc(k)}" data-evday="${pt.date}"><span class="t">${pt.date.slice(8)}/${pt.date.slice(5, 7)}<br>${pt.time}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`; }).join('') : '<p class="muted small pad">Aucun événement trouvé dans la période chargée.</p>';
     const sel = NUI.sel && NEWS_EVENTS.find(e => evKey(e) === NUI.sel);
     const hist = sel ? ((sel.eventId && HIST[sel.eventId] && HIST[sel.eventId].length) ? HIST[sel.eventId] : NEWS_EVENTS.filter(e => e.country === sel.country && e.title === sel.title).sort((a, b) => b.ts - a.ts)) : [];
     const b = newsBlockCfg();
@@ -2887,7 +2902,8 @@
         </div></div>
       <div class="nc-filters">
         <div class="nc-chips">${ALL_CCY.map(x => `<button class="nc-chip ${c.currencies.indexOf(x) >= 0 ? 'on' : ''}" data-ccy="${x}">${CCY_FLAG[x]} ${x}</button>`).join('')}</div>
-        <div class="nc-chips">${IMPACTS.map(([k, l, cl]) => `<button class="nc-chip ${c.impacts.indexOf(k) >= 0 ? 'on' : ''}" data-imp="${k}"><i class="dot ${cl}"></i> ${l}</button>`).join('')}</div>
+        <div class="nc-chips">${IMPACTS.map(([k, l, cl]) => `<button class="nc-chip ${c.impacts.indexOf(k) >= 0 ? 'on' : ''}" data-imp="${k}"><i class="dot ${cl}"></i> ${l}</button>`).join('')}
+          <label class="nc-major"><input type="checkbox" id="nc-major" ${c.majorHigh !== false ? 'checked' : ''}> Indicateurs majeurs toujours en fort (CPI, PPI, NFP, taux, PIB, ventes au détail, PMI ISM…)</label></div>
       </div>
       ${NEWS_STATUS ? `<div class="note">${esc(NEWS_STATUS)}</div>` : ''}
       <div class="nc-layout">
@@ -2897,12 +2913,13 @@
         </div>
         <div class="nc-day card">
           <div class="nc-dayhead"><button class="btn sm" id="nc-pd" aria-label="Jour précédent">‹</button><button class="btn sm" id="nc-nd" aria-label="Jour suivant">›</button><h2>${esc(fmtDayLong(NUI.day))}${isToday ? ' · Aujourd\'hui' : ''}</h2><button class="btn sm" id="nc-today" ${isToday ? 'disabled' : ''}>Aujourd'hui</button></div>
-          <input id="nc-q" placeholder="Rechercher (devise, événement)…" value="${esc(NUI.q)}">
+          <input id="nc-q" type="search" placeholder="Rechercher dans toute la période (ex. PPI)…" value="${esc(NUI.q)}">
           <div class="nc-list">${rows || `<p class="muted small pad">${NEWS_EVENTS.length ? 'Aucun événement pour ce jour avec ces filtres.' : 'Chargement des événements…'}</p>`}</div>
           ${sel ? `<div class="nc-detail" id="nc-detail">
             <div class="nc-dethead"><h3>${CCY_FLAG[sel.country] || ''} ${esc(sel.title)}</h3><button class="btn sm" id="nc-close" aria-label="Fermer">×</button></div>
             <p class="small">🕒 ${esc(fmtDayLong(tzParts(sel.ts, tz).date))} · ${tzParts(sel.ts, tz).time} (${esc(tz)}) · <b>${relTime(sel.ts)}</b></p>
             <div class="nc-facts"><div><span>Devise</span>${esc(sel.country)}</div><div><span>Impact</span><i class="dot ${impCls(sel.impact)}"></i> ${esc((IMPACTS.find(x => x[0].toLowerCase() === String(sel.impact).toLowerCase()) || [0, sel.impact])[1])}</div><div><span>Prévision</span>${esc(sel.forecast || '–')}</div><div><span>Précédent</span>${esc(sel.previous || '–')}</div>${sel.actual ? `<div><span>Réel</span>${esc(sel.actual)}</div>` : ''}</div>
+            <label class="nc-ov">Impact de cette news <select id="nc-ov"><option value="">Automatique (${esc(sel.srcImpact === sel.impact ? 'source : ' + (sel.rawImp || sel.srcImpact) : 'source : ' + (sel.rawImp || sel.srcImpact) + ', relevé à Fort')})</option>${IMPACTS.map(([k, l]) => `<option value="${k}"${((newsCfg().impOverride || {})[ovKey(sel)] === k) ? ' selected' : ''}>${l} (toujours)</option>`).join('')}</select></label>
             ${evDesc(sel.title) ? `<p class="small">${esc(evDesc(sel.title))}</p>` : ''}
             ${hist.length > 1 ? `<table class="nc-hist"><thead><tr><th>Date</th><th class="num">Réel${hist.some(h => h.src === 'ff') ? '*' : ''}</th><th class="num">Prévision</th><th class="num">Précédent</th></tr></thead><tbody>${hist.slice(0, 8).map((h, i) => `<tr><td>${esc(tzParts(h.ts, tz).date)}</td><td class="num">${esc(h.actual || (h.src === 'ff' && i > 0 ? hist[i - 1].previous : '') || '–')}</td><td class="num">${esc(h.forecast || '–')}</td><td class="num">${esc(h.previous || '–')}</td></tr>`).join('')}</tbody></table>${hist.some(h => h.src === 'ff') ? '<p class="muted small">* Réel estimé = valeur « précédent » annoncée à la publication suivante (ForexFactory ne donne pas le réel).</p>' : ''}` : ''}
           </div>` : ''}
@@ -2914,7 +2931,7 @@
     </div>`;
     const go = () => renderNews();
     nc.querySelectorAll('[data-day]').forEach(x => x.onclick = () => { NUI.day = x.dataset.day; NUI.sel = ''; if (NUI.day.slice(0, 7) !== NUI.month) NUI.month = NUI.day.slice(0, 7); go(); });
-    nc.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => { NUI.sel = NUI.sel === x.dataset.ev ? '' : x.dataset.ev; go(); });
+    nc.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => { NUI.sel = NUI.sel === x.dataset.ev ? '' : x.dataset.ev; if (x.dataset.evday) { NUI.day = x.dataset.evday; NUI.month = NUI.day.slice(0, 7); } go(); });
     nc.querySelectorAll('[data-ccy]').forEach(x => x.onclick = () => { const a = newsCfg().currencies, i = a.indexOf(x.dataset.ccy); if (i >= 0) { if (a.length > 1) a.splice(i, 1); } else a.push(x.dataset.ccy); saveNewsSoon(); go(); });
     nc.querySelectorAll('[data-imp]').forEach(x => x.onclick = () => { const a = newsCfg().impacts, i = a.indexOf(x.dataset.imp); if (i >= 0) { if (a.length > 1) a.splice(i, 1); } else a.push(x.dataset.imp); saveNewsSoon(); go(); });
     $('#nc-tz').onchange = e => { newsCfg().tz = e.target.value; NUI.day = ''; NUI.month = ''; save('Fuseau horaire enregistré'); go(); };
@@ -2923,10 +2940,12 @@
     $('#nc-pd').onclick = () => { NUI.day = addDaysISO(NUI.day, -1); NUI.month = NUI.day.slice(0, 7); NUI.sel = ''; go(); };
     $('#nc-nd').onclick = () => { NUI.day = addDaysISO(NUI.day, 1); NUI.month = NUI.day.slice(0, 7); NUI.sel = ''; go(); };
     $('#nc-today').onclick = () => { NUI.day = today; NUI.month = today.slice(0, 7); NUI.sel = ''; go(); };
-    $('#nc-q').onchange = e => { NUI.q = e.target.value; go(); };
+    $('#nc-q').onchange = e => { NUI.q = e.target.value.trim(); go(); };
     $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true, NUI.month).then(() => { if (view === 'news') go(); }); };
     $('#nc-block').onclick = () => { NUI.settings = true; go(); };
     if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
+    if (sel && $('#nc-ov')) $('#nc-ov').onchange = e => { const c2 = newsCfg(); c2.impOverride = c2.impOverride || {}; if (e.target.value) c2.impOverride[ovKey(sel)] = e.target.value; else delete c2.impOverride[ovKey(sel)]; applyImpacts(); saveNewsSoon('Impact enregistré'); go(); };
+    if ($('#nc-major')) $('#nc-major').onchange = e => { newsCfg().majorHigh = e.target.checked; applyImpacts(); saveNewsSoon(); go(); };
     if (NUI.settings) wireNewsSettings();
     const meta = getMeta();
     const recentFail = NEWS_FAIL[NUI.month] && Date.now() - NEWS_FAIL[NUI.month] < 2 * 60e3;
