@@ -2703,27 +2703,80 @@
   function saveNewsSoon(msg) { clearTimeout(_nsSave); _nsSave = setTimeout(() => save(msg || 'Préférences du calendrier enregistrées'), 1200); }
   function archLoad() { try { return JSON.parse(localStorage.getItem(NEWS_ARCH)) || {}; } catch (e) { return {}; } }
   function archSave(a) { try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e) { const ks = Object.keys(a).sort((x, y) => a[x].ts - a[y].ts); ks.slice(0, Math.ceil(ks.length / 3)).forEach(k => delete a[k]); try { localStorage.setItem(NEWS_ARCH, JSON.stringify(a)); } catch (e2) {} } }
-  function normEv(e) { const ts = new Date(e.date).getTime(); return { title: String(e.title || e.event || '').trim(), country: String(e.country || e.currency || '').toUpperCase(), date: e.date, ts, impact: e.impact || 'Low', forecast: e.forecast || '', previous: e.previous || '', actual: e.actual || '' }; }
-  const evKey = e => e.country + '|' + e.title + '|' + new Date(e.ts).toISOString().slice(0, 16);
-  function fetchFF(url) {
-    const proxy = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-    const get = u => fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-    return get(url).catch(() => get(proxy));
+  /* --- sources : biquote.io (réel/prévision/précédent, ±90 j) puis ForexFactory ; chaque URL est tentée en direct puis via plusieurs relais CORS --- */
+  const NEWS_ROUTE_KEY = 'news_route_v1';
+  const ROUTES = [
+    ['direct', u => u],
+    ['corsproxy', u => 'https://corsproxy.io/?url=' + encodeURIComponent(u)],
+    ['codetabs', u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)],
+    ['allorigins', u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)],
+    ['allorigins-get', u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u)],
+  ];
+  function fetchTimeout(u, ms) {
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const tm = setTimeout(() => ctl && ctl.abort(), ms || 9000);
+    return fetch(u, { cache: 'no-store', signal: ctl ? ctl.signal : undefined }).finally(() => clearTimeout(tm));
   }
-  function loadNewsEvents(force) {
-    const arch = archLoad(); let meta = {}; try { meta = JSON.parse(localStorage.getItem(NEWS_META)) || {}; } catch (e) {}
-    const done = () => { NEWS_EVENTS = Object.values(arch).filter(e => !isNaN(e.ts)).sort((a, b) => a.ts - b.ts); return NEWS_EVENTS; };
-    if (!force && meta.at && Date.now() - meta.at < 30 * 60e3 && Object.keys(arch).length) return Promise.resolve(done());
+  async function fetchJSON(url) {
+    let pref = ''; try { pref = localStorage.getItem(NEWS_ROUTE_KEY) || ''; } catch (e) {}
+    const one = ([name, mk]) => fetchTimeout(mk(url), 8000).then(async r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      let txt = await r.text(); if (name === 'allorigins-get') txt = JSON.parse(txt).contents;
+      return [name, JSON.parse(txt)];
+    });
+    const first = ROUTES.find(r => r[0] === pref);
+    if (first) { try { return (await one(first))[1]; } catch (e) {} }
+    // sinon : toutes les autres voies en parallèle, la première qui répond gagne
+    const [name, j] = await Promise.any(ROUTES.filter(r => r !== first).map(one)).catch(() => { throw new Error('indisponible'); });
+    try { localStorage.setItem(NEWS_ROUTE_KEY, name); } catch (e) {}
+    return j;
+  }
+  const asList = j => Array.isArray(j) ? j : j && (j.data || j.events || j.items || j.results || j.calendar) || [];
+  const IMP_MAP = { high: 'High', medium: 'Medium', low: 'Low', holiday: 'Holiday', '3': 'High', '2': 'Medium', '1': 'Low' };
+  const fmtVal = (v, e) => v === null || v === undefined || v === '' ? '' : String(v) + (e && e.unit && /%/.test(e.unit) && !/%/.test(String(v)) ? '%' : '');
+  function normBQ(e) {
+    const ts = new Date(e.time || e.date || e.datetime).getTime();
+    const imp = String(e.type || '').toLowerCase() === 'holiday' ? 'Holiday' : (IMP_MAP[String(e.importance || e.impact || '').toLowerCase()] || 'Low');
+    return { title: String(e.name || e.title || e.event || '').trim(), country: String(e.currency || e.country || '').toUpperCase(), date: e.time || e.date, ts, impact: imp,
+      forecast: fmtVal(e.forecast, e), previous: fmtVal(e.revisedPrevious != null ? e.revisedPrevious : e.previous, e), actual: fmtVal(e.actual, e),
+      eventId: e.eventId || e.id || '', allDay: e.timeMode && e.timeMode !== 'exact', src: 'bq' };
+  }
+  function normEv(e) { const ts = new Date(e.date).getTime(); return { title: String(e.title || e.event || '').trim(), country: String(e.country || e.currency || '').toUpperCase(), date: e.date, ts, impact: e.impact || 'Low', forecast: e.forecast || '', previous: e.previous || '', actual: e.actual || '', src: 'ff' }; }
+  const evKey = e => e.src + '|' + e.country + '|' + e.title + '|' + new Date(e.ts).toISOString().slice(0, 16);
+  function rebuildEvents(arch) {
+    const bqDays = new Set(Object.values(arch).filter(e => e.src === 'bq').map(e => new Date(e.ts).toISOString().slice(0, 10)));
+    NEWS_EVENTS = Object.values(arch).filter(e => !isNaN(e.ts) && !(e.src === 'ff' && bqDays.has(new Date(e.ts).toISOString().slice(0, 10)))).sort((a, b) => a.ts - b.ts);
+    return NEWS_EVENTS;
+  }
+  function getMeta() { try { return JSON.parse(localStorage.getItem(NEWS_META)) || {}; } catch (e) { return {}; } }
+  function setMeta(m) { try { localStorage.setItem(NEWS_META, JSON.stringify(m)); } catch (e) {} }
+  // charge le mois `ym` (et la semaine courante) ; cache : 30 mn pour le mois en cours, 12 h pour les autres
+  function loadNewsEvents(force, ym) {
+    const arch = archLoad(), meta = getMeta();
+    const cur = new Date().toISOString().slice(0, 7); ym = ym || cur;
+    const ttl = ym === cur ? 30 * 60e3 : 12 * 3600e3, k = 'bq:' + ym;
+    if (!force && meta[k] && Date.now() - meta[k] < ttl && Object.keys(arch).length) return Promise.resolve(rebuildEvents(arch));
     if (NEWS_LOADING) return NEWS_LOADING;
-    const urls = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json', 'https://nfs.faireconomy.media/ff_calendar_nextweek.json'];
-    NEWS_LOADING = Promise.all(urls.map(u => fetchFF(u).catch(() => null))).then(res => {
-      let got = 0;
-      res.forEach(list => { if (Array.isArray(list)) list.forEach(e => { const n = normEv(e); if (n.title && !isNaN(n.ts)) { const k = evKey(n); arch[k] = Object.assign(arch[k] || {}, n); got++; } }); });
-      if (got) { const lim = Date.now() - 400 * 864e5; Object.keys(arch).forEach(k => { if (arch[k].ts < lim) delete arch[k]; }); archSave(arch); try { localStorage.setItem(NEWS_META, JSON.stringify({ at: Date.now() })); } catch (e) {} NEWS_STATUS = ''; }
-      else NEWS_STATUS = 'Source des news indisponible pour le moment (réseau ou limite de requêtes). Affichage des données en cache.';
-      NEWS_LOADING = null; return done();
+    const from = addDaysISO(ym + '-01', -7), to = addDaysISO(addMonth(ym, 1) + '-01', 7);
+    const bq = fetchJSON(`https://biquote.io/api/calendar?from=${from}&to=${to}`).then(j => asList(j).map(normBQ)).catch(() => null);
+    const ff = ym === cur ? fetchJSON('https://nfs.faireconomy.media/ff_calendar_thisweek.json').then(j => asList(j).map(normEv)).catch(() => null) : Promise.resolve(null);
+    NEWS_LOADING = Promise.all([bq, ff]).then(([a, b]) => {
+      let got = 0; const srcs = [];
+      [[a, 'biquote.io'], [b, 'ForexFactory']].forEach(([list, nm]) => { if (list && list.length) { srcs.push(nm); list.forEach(n => { if (n.title && !isNaN(n.ts)) { arch[evKey(n)] = n; got++; } }); } });
+      if (got) {
+        const lim = Date.now() - 400 * 864e5; Object.keys(arch).forEach(x => { if (arch[x].ts < lim) delete arch[x]; });
+        archSave(arch); meta[k] = Date.now(); meta.src = srcs.join(' + '); meta.at = Date.now(); setMeta(meta); NEWS_STATUS = '';
+      } else { NEWS_FAIL[ym] = Date.now(); NEWS_STATUS = 'Aucune source de news joignable pour le moment (biquote.io et ForexFactory, en direct et via 4 relais). ' + (Object.keys(arch).length ? 'Affichage des données en cache.' : 'Vérifie ta connexion puis clique « Actualiser ».'); }
+      NEWS_LOADING = null; return rebuildEvents(arch);
     });
     return NEWS_LOADING;
+  }
+  const HIST = {}, NEWS_FAIL = {};
+  function loadHistory(e) {
+    if (!e.eventId || HIST[e.eventId]) return Promise.resolve(HIST[e.eventId] || null);
+    return fetchJSON('https://biquote.io/api/calendar/' + encodeURIComponent(e.eventId) + '/history').then(j => {
+      HIST[e.eventId] = asList(j).map(normBQ).filter(h => !isNaN(h.ts)).sort((a, b) => b.ts - a.ts); return HIST[e.eventId];
+    }).catch(() => { HIST[e.eventId] = []; return []; });
   }
   function tzParts(ts, tz) {
     const p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ts)).forEach(x => p[x.type] = x.value);
@@ -2803,10 +2856,10 @@
     dayEvs.forEach(e => {
       while (bi < dayBlocks.length && dayBlocks[bi].from <= e.ts) { const w = dayBlocks[bi++]; rows += `<div class="nc-lockrow">🔒 ${tzParts(w.from, tz).time} · Trading bloqué jusqu'à ${tzParts(w.to, tz).time}</div>`; }
       const k = evKey(e), t = tzParts(e.ts, tz).time;
-      rows += `<button class="nc-ev ${k === NUI.sel ? 'on' : ''} ${e.ts < Date.now() ? 'past' : ''}" data-ev="${esc(k)}"><span class="t">${/^00:00$/.test(t) && /holiday/i.test(e.impact) ? 'Jour' : t}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`;
+      rows += `<button class="nc-ev ${k === NUI.sel ? 'on' : ''} ${e.ts < Date.now() ? 'past' : ''}" data-ev="${esc(k)}"><span class="t">${e.allDay || (/^00:00$/.test(t) && /holiday/i.test(e.impact)) ? 'Jour' : t}</span><span class="c">${CCY_FLAG[e.country] || ''} ${esc(e.country)}</span><i class="dot ${impCls(e.impact)}"></i><span class="n">${esc(e.title)}</span></button>`;
     });
     const sel = NUI.sel && NEWS_EVENTS.find(e => evKey(e) === NUI.sel);
-    const hist = sel ? NEWS_EVENTS.filter(e => e.country === sel.country && e.title === sel.title).sort((a, b) => b.ts - a.ts) : [];
+    const hist = sel ? ((sel.eventId && HIST[sel.eventId] && HIST[sel.eventId].length) ? HIST[sel.eventId] : NEWS_EVENTS.filter(e => e.country === sel.country && e.title === sel.title).sort((a, b) => b.ts - a.ts)) : [];
     const b = newsBlockCfg();
     const isToday = NUI.day === today;
     nc.innerHTML = `<div class="nc-wrap">
@@ -2835,11 +2888,11 @@
             <p class="small">🕒 ${esc(fmtDayLong(tzParts(sel.ts, tz).date))} · ${tzParts(sel.ts, tz).time} (${esc(tz)}) · <b>${relTime(sel.ts)}</b></p>
             <div class="nc-facts"><div><span>Devise</span>${esc(sel.country)}</div><div><span>Impact</span><i class="dot ${impCls(sel.impact)}"></i> ${esc((IMPACTS.find(x => x[0].toLowerCase() === String(sel.impact).toLowerCase()) || [0, sel.impact])[1])}</div><div><span>Prévision</span>${esc(sel.forecast || '–')}</div><div><span>Précédent</span>${esc(sel.previous || '–')}</div>${sel.actual ? `<div><span>Réel</span>${esc(sel.actual)}</div>` : ''}</div>
             ${evDesc(sel.title) ? `<p class="small">${esc(evDesc(sel.title))}</p>` : ''}
-            ${hist.length > 1 ? `<table class="nc-hist"><thead><tr><th>Date</th><th class="num">Réel*</th><th class="num">Prévision</th><th class="num">Précédent</th></tr></thead><tbody>${hist.slice(0, 8).map((h, i) => `<tr><td>${esc(tzParts(h.ts, tz).date)}</td><td class="num">${esc(h.actual || (i > 0 ? hist[i - 1].previous : '') || '–')}</td><td class="num">${esc(h.forecast || '–')}</td><td class="num">${esc(h.previous || '–')}</td></tr>`).join('')}</tbody></table><p class="muted small">* Réel = valeur « précédent » annoncée à la publication suivante (la source ne fournit pas le réel directement).</p>` : ''}
+            ${hist.length > 1 ? `<table class="nc-hist"><thead><tr><th>Date</th><th class="num">Réel${hist.some(h => h.src === 'ff') ? '*' : ''}</th><th class="num">Prévision</th><th class="num">Précédent</th></tr></thead><tbody>${hist.slice(0, 8).map((h, i) => `<tr><td>${esc(tzParts(h.ts, tz).date)}</td><td class="num">${esc(h.actual || (h.src === 'ff' && i > 0 ? hist[i - 1].previous : '') || '–')}</td><td class="num">${esc(h.forecast || '–')}</td><td class="num">${esc(h.previous || '–')}</td></tr>`).join('')}</tbody></table>${hist.some(h => h.src === 'ff') ? '<p class="muted small">* Réel estimé = valeur « précédent » annoncée à la publication suivante (ForexFactory ne donne pas le réel).</p>' : ''}` : ''}
           </div>` : ''}
         </div>
       </div>
-      <p class="muted small">Source : flux ForexFactory (semaine en cours et suivante). L'historique se construit sur cet appareil au fil des semaines. Heures affichées dans le fuseau ${esc(tz)}. <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Ouvrir investing.com</a></p>
+      <p class="muted small">Sources : ${esc(getMeta().src || 'biquote.io, ForexFactory')} (environ 90 jours avant et après aujourd'hui)${getMeta().at ? ' · mis à jour ' + relTime(getMeta().at) : ''}. Heures affichées dans le fuseau ${esc(tz)}. <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Ouvrir investing.com</a></p>
       ${NUI.settings ? newsSettingsHTML() : ''}
     </div>`;
     const go = () => renderNews();
@@ -2854,11 +2907,14 @@
     $('#nc-nd').onclick = () => { NUI.day = addDaysISO(NUI.day, 1); NUI.month = NUI.day.slice(0, 7); NUI.sel = ''; go(); };
     $('#nc-today').onclick = () => { NUI.day = today; NUI.month = today.slice(0, 7); NUI.sel = ''; go(); };
     $('#nc-q').onchange = e => { NUI.q = e.target.value; go(); };
-    $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true).then(() => { if (view === 'news') go(); }); };
+    $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true, NUI.month).then(() => { if (view === 'news') go(); }); };
     $('#nc-block').onclick = () => { NUI.settings = true; go(); };
     if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
     if (NUI.settings) wireNewsSettings();
-    if (!NEWS_EVENTS.length && !NEWS_LOADING) loadNewsEvents().then(() => { if (view === 'news') go(); });
+    const meta = getMeta();
+    const recentFail = NEWS_FAIL[NUI.month] && Date.now() - NEWS_FAIL[NUI.month] < 2 * 60e3;
+    if (!NEWS_LOADING && !recentFail && (!NEWS_EVENTS.length || !(meta['bq:' + NUI.month] && Date.now() - meta['bq:' + NUI.month] < 12 * 3600e3))) loadNewsEvents(false, NUI.month).then(() => { if (view === 'news') go(); });
+    if (sel && sel.eventId && !HIST[sel.eventId]) loadHistory(sel).then(() => { if (view === 'news' && NUI.sel === evKey(sel)) go(); });
   }
   function newsSettingsHTML() {
     const b = newsBlockCfg();
