@@ -19,3 +19,12 @@
 ## Données
 Vos données sont dans `journal-backtest.json` sur votre Google Drive personnel.
 Aucun serveur, aucun tiers. L'application tourne entièrement dans votre navigateur.
+
+## Interface allégée (V10)
+- En-tête sur 2 lignes : la pastille « 📊 trades · Net R » ouvre le détail (objectifs, focus, revues). Seules les alertes bloquantes restent affichées en permanence.
+- ⚙ : thème, mode compact, compte Google.
+- Dashboard, Analyse et Revues : sections repliables, ouverture mémorisée, chiffre clé dans le titre. Filtres et indicateurs secondaires repliés.
+- ⓘ : affiche l'explication d'une section.
+- Formulaire de trade en 3 étapes (Avant l'entrée, Exécution, Après) + Détails.
+- ⏱ Session : écran épuré (heure, killzone, risque restant, prochaines news, checklist, calculateur).
+- Badge « n<20 » : statistique sur moins de 20 trades, peu fiable.

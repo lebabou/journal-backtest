@@ -3557,7 +3557,7 @@
       </div>`;
   }
   const CAT_KEY = 'dash_cat_open_v1';
-  const catOpen = () => { try { return localStorage.getItem(CAT_KEY) !== '0'; } catch (e) { return true; } };
+  const catOpen = () => { try { return localStorage.getItem(CAT_KEY) === '1'; } catch (e) { return false; } };
   document.addEventListener('toggle', e => { const t = e.target; if (t && t.classList && t.classList.contains('cat-fold')) { try { localStorage.setItem(CAT_KEY, t.open ? '1' : '0'); } catch (x) {} } }, true);
 
   /* ================= V8 : progression du formulaire en direct + alertes news réglables ================= */
@@ -3746,6 +3746,334 @@
     </div>`;
   }
 
+  /* ================= V10 : interface allégée, mode Session, corrélation checklist, taille d'échantillon ================= */
+  const N_MIN = 20;
+  const EXPAND_ALL = (() => { try { return localStorage.getItem('v10_expand_all') === '1'; } catch (e) { return false; } })();   // tout déplié (tests / préférence avancée)
+  const V10_LS = { fold: 'fold_state_v1', kpi: 'kpi_open_v1', compact: 'journal_compact_v1' };
+  const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  const foldState = () => { try { return JSON.parse(lsGet(V10_LS.fold, '{}')) || {}; } catch (e) { return {}; } };
+
+  /* ---- 1. en-tête compact ---- */
+  function isCompact() { return lsGet(V10_LS.compact, '1') !== '0'; }
+  function applyCompact() { document.documentElement.toggleAttribute('data-compact', isCompact()); }
+  applyCompact();
+  function buildHeader() {
+    const top = document.querySelector('.top'); if (!top || top.dataset.v10) return;
+    try { themeSwitcher(); } catch (e) {}
+    top.dataset.v10 = '1';
+    const row = document.createElement('div'); row.className = 'top-row';
+    const brand = top.querySelector('.brand'); if (brand) row.appendChild(brand);
+    const acts = document.createElement('div'); acts.className = 'top-acts';
+    acts.innerHTML = `<a class="btn top-ses" href="#/session" title="Mode Session : écran épuré pour trader">⏱<span class="top-lbl"> Session</span></a>`;
+    const nb = document.getElementById('btn-new'); if (nb) { nb.innerHTML = '+<span class="top-lbl"> Trade</span>'; nb.title = 'Nouveau trade'; acts.appendChild(nb); }
+    const gear = document.createElement('button'); gear.type = 'button'; gear.className = 'btn top-gear'; gear.id = 'top-gear'; gear.title = 'Réglages'; gear.setAttribute('aria-expanded', 'false'); gear.textContent = '⚙';
+    acts.appendChild(gear); row.appendChild(acts);
+    top.insertBefore(row, top.firstChild);
+    const menu = document.createElement('div'); menu.className = 'top-menu'; menu.id = 'top-menu'; menu.hidden = true;
+    menu.innerHTML = `<div class="tm-row"><span>Thème</span><span id="tm-theme"></span></div>
+      <label class="tm-row"><span>Mode compact</span><input type="checkbox" id="tm-compact"${isCompact() ? ' checked' : ''}></label>
+      <div class="tm-row tm-auth" id="tm-auth"></div>`;
+    top.appendChild(menu);
+    const sel = document.getElementById('theme-sel'); if (sel) menu.querySelector('#tm-theme').appendChild(sel);
+    ['auth-info', 'auth-btn'].forEach(id => { const el = document.getElementById(id); if (el) menu.querySelector('#tm-auth').appendChild(el); });
+    menu.querySelector('#tm-compact').onchange = e => { lsSet(V10_LS.compact, e.target.checked ? '1' : '0'); applyCompact(); };
+    gear.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; gear.setAttribute('aria-expanded', String(!menu.hidden)); };
+    const bar = document.getElementById('gr-status-bar'), nav = document.getElementById('nav');
+    if (bar && nav) { const r2 = document.createElement('div'); r2.className = 'top-row2'; top.insertBefore(r2, nav); r2.appendChild(bar); r2.appendChild(nav); }
+    document.addEventListener('click', e => {
+      if (!menu.hidden && !e.target.closest('#top-menu, #top-gear')) { menu.hidden = true; gear.setAttribute('aria-expanded', 'false'); }
+      const dr = document.getElementById('gr-drawer');
+      if (dr && !dr.hidden && !e.target.closest('#gr-drawer, #gr-sum, #focus-pop')) { dr.hidden = true; const s = document.getElementById('gr-sum'); if (s) s.setAttribute('aria-expanded', 'false'); }
+    });
+    try { updateStatusBar(); } catch (e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(buildHeader, 0)); else setTimeout(buildHeader, 0);
+
+  function compactStatus() {
+    const bar = document.getElementById('gr-status-bar'); if (!bar || !DB) return;
+    const top = document.querySelector('.top'); if (!top) return;
+    let dr = document.getElementById('gr-drawer');
+    const wasOpen = dr && !dr.hidden;
+    if (!dr) { dr = document.createElement('div'); dr.id = 'gr-drawer'; dr.className = 'gr-drawer'; dr.hidden = true; top.appendChild(dr); }
+    dr.innerHTML = '';
+    const blocking = el => el.matches('.gr-pill-danger, #news-alert-pill, .gr-pill-news');
+    [...bar.children].forEach(el => { if (!blocking(el)) dr.appendChild(el); });
+    const warn = dr.querySelectorAll('.gr-pill-warn, .gr-pill-review').length, n = dr.children.length;
+    const g = getGuardrails(), st = todayStats();
+    const txt = g.enabled ? `📊 ${st.n}/${g.maxTrades} · ${sgn(st.net)}R` : '☰ Infos';
+    const b = document.createElement('button'); b.type = 'button'; b.id = 'gr-sum'; b.className = 'gr-pill gr-sum' + (warn ? ' has-warn' : '');
+    b.setAttribute('aria-expanded', String(wasOpen)); b.title = 'Objectifs, focus du jour, revues à faire';
+    b.innerHTML = `${txt}${n ? ` <span class="gr-cnt">${n}</span>` : ''} ▾`;
+    b.onclick = e => { e.stopPropagation(); dr.hidden = !dr.hidden; b.setAttribute('aria-expanded', String(!dr.hidden)); };
+    bar.insertBefore(b, bar.firstChild);
+    dr.hidden = !wasOpen;
+    if (!n) dr.innerHTML = '<span class="muted small">Rien à signaler.</span>';
+  }
+  { const _usb = updateStatusBar; updateStatusBar = function () { _usb(); try { compactStatus(); } catch (e) {} }; }
+
+  /* ---- 6. textes d'aide -> ⓘ ---- */
+  function helpify(root) {
+    if (EXPAND_ALL) return;
+    const cand = root.querySelectorAll('p.muted, .note, p.small.muted');
+    cand.forEach(p => {
+      if (p.dataset.help || p.closest('.kpi, table, .help-text, .fp-bar, .top, .gr-drawer, .ses-keep, .ms-list, .tm-row')) return;
+      const txt = p.textContent.trim(); if (txt.length < 70) return;
+      if (p.querySelector('input, select, textarea, button')) return;
+      const par = p.parentElement; if (!par) return;
+      const others = [...par.children].filter(c => c !== p && !/^(H1|H2|H3|LEGEND|SUMMARY)$/.test(c.tagName) && !c.matches('p.muted, .note'));
+      if (!others.length && !par.matches('.card, fieldset, .fstep-b')) return;   // état vide : on laisse visible
+      const pv = p.previousElementSibling, nx = p.nextElementSibling;
+      if (pv && pv.tagName === 'H2' && (!nx || /^(H2|DETAILS)$/.test(nx.tagName))) return;   // seul contenu d'une section
+      p.dataset.help = '1'; p.classList.add('help-text'); p.hidden = true;
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'info-i'; btn.textContent = 'ⓘ'; btn.title = 'Afficher l\'explication'; btn.setAttribute('aria-expanded', 'false');
+      btn.onclick = e => { e.preventDefault(); e.stopPropagation(); p.hidden = !p.hidden; btn.setAttribute('aria-expanded', String(!p.hidden)); btn.classList.toggle('on', !p.hidden); };
+      let head = null;
+      for (let s = p.previousElementSibling; s; s = s.previousElementSibling) if (/^(H1|H2|H3)$/.test(s.tagName) || s.matches('legend')) { head = s; break; }
+      if (!head) head = par.querySelector(':scope > h1, :scope > h2, :scope > h3, :scope > legend, :scope > summary');
+      if (!head && par.parentElement) { const ps = par.previousElementSibling; if (ps && /^(H2|H3)$/.test(ps.tagName)) head = ps; }
+      if (head && !head.querySelector('.info-i')) head.appendChild(btn);
+      else p.parentNode.insertBefore(btn, p);
+    });
+  }
+
+  /* ---- 11. taille d'échantillon ---- */
+  function nBadges(root) {
+    root.querySelectorAll('table').forEach(tb => {
+      if (tb.dataset.nb) return; tb.dataset.nb = '1';
+      const ths = [...tb.querySelectorAll('thead th')]; const ci = ths.findIndex(th => th.textContent.trim().toLowerCase() === 'n'); if (ci < 0) return;
+      tb.querySelectorAll('tbody tr').forEach(tr => {
+        const td = tr.children[ci]; if (!td) return; const n = parseInt(td.textContent, 10); if (!Number.isFinite(n) || n >= N_MIN) return;
+        tr.classList.add('low'); td.insertAdjacentHTML('beforeend', ` <span class="nb" title="Moins de ${N_MIN} trades : statistique peu fiable, ne pas en tirer de conclusion">n&lt;${N_MIN}</span>`);
+      });
+    });
+  }
+
+  /* ---- 3 / 4. sections repliables ---- */
+  const FOLD_CFG = {
+    dashboard: { open: [/^Courbes/], hint: {
+      'Discipline': b => { const g = b.querySelector('.disc-grade'), p = b.querySelector('.disc-pct'); return g ? `${g.textContent} · ${p ? p.textContent : ''}` : ''; },
+      'Score de consistance': b => { const v = b.querySelector('.cons-ring b'); return v ? v.textContent + '/100' : ''; },
+      'Checklist pré-entrée': b => { const v = b.querySelectorAll('.cl-stats .kpi .v')[1]; return v ? 'Remplissage ' + v.textContent : ''; },
+      'Fenêtre glissante': b => { const k = [...b.querySelectorAll('.kpi')].find(x => (x.querySelector('.l') || {}).textContent === 'Net R'); return k ? 'Net ' + k.querySelector('.v').textContent + ' R' : ''; },
+    } },
+    analysis: { open: [/^Espérance glissante/], hint: {
+      'Espérance glissante': b => { const v = b.querySelector('.kpi .v'); return v ? 'E20 ' + v.textContent : ''; },
+      'Coût des erreurs': b => { const tr = b.querySelector('tbody tr'); return tr && tr.children.length > 5 ? `${tr.children[0].textContent.trim()} ${tr.children[5].textContent.trim()}` : ''; },
+      'Checklist ↔ résultat': b => { const v = b.querySelector('[data-r]'); return v ? v.dataset.r : ''; },
+    } },
+    reviews: { open: [/^Réflexion/], hint: {
+      'Réflexion': b => { const q = [...b.querySelectorAll('.qa textarea, .qa input')]; return q.length ? `${q.filter(x => x.value.trim()).length}/${q.length} réponses` : ''; },
+      'Trades de la période': b => `${b.querySelectorAll('tbody tr').length} trade(s)`,
+      'Historique': b => { const d = b.querySelectorAll('.rh-todo').length; return d ? `${d} à faire` : 'à jour'; },
+    } },
+  };
+  const foldKey = t => t.replace(/ⓘ/g, '').split(/\s*[:(]/)[0].replace(/^[^\wÀ-ÿ]+/, '').trim();
+  // place chaque <details> à l'endroit du titre d'origine (le titre a été déplacé, on utilise un repère)
+  function foldifyInPlace(v) {
+    const cfg = FOLD_CFG[v]; if (!cfg) return;
+    const main = $('#main'), st = foldState();
+    if (v === 'dashboard') { const d = main.querySelector(':scope > .disc-card'); if (d) { const h = document.createElement('h2'); h.textContent = 'Discipline'; main.insertBefore(h, d); } }
+    [...main.children].filter(c => c.tagName === 'H2').forEach(h => {
+      const key = foldKey(h.textContent), id = v + ':' + key;
+      const d = document.createElement('details'); d.className = 'fold'; d.dataset.k = id;
+      main.insertBefore(d, h);
+      const body = document.createElement('div'); body.className = 'fold-b';
+      for (let s = h.nextElementSibling; s && s.tagName !== 'H2' && !(s.tagName === 'DETAILS'); s = h.nextElementSibling) body.appendChild(s);
+      const sum = document.createElement('summary'); sum.appendChild(h);
+      const hf = Object.keys(cfg.hint).find(k => key.startsWith(k));
+      let hint = ''; try { hint = hf ? cfg.hint[hf](body) : ''; } catch (e) {}
+      if (hint) { const sp = document.createElement('span'); sp.className = 'fold-h'; sp.textContent = hint; sum.appendChild(sp); }
+      d.appendChild(sum); d.appendChild(body);
+      d.open = EXPAND_ALL || (id in st ? !!st[id] : cfg.open.some(re => re.test(key)));
+      d.addEventListener('toggle', () => { const s2 = foldState(); s2[id] = d.open ? 1 : 0; lsSet(V10_LS.fold, JSON.stringify(s2)); });
+    });
+  }
+
+  /* filtres repliés + indicateurs secondaires masqués */
+  function foldFilters(root) {
+    const bar = root.querySelector(':scope > .bar'); if (!bar || bar.querySelectorAll('label').length < 4 || bar.closest('details')) return;
+    let act = 0; bar.querySelectorAll('select, input').forEach(el => { if (el.type === 'checkbox' ? el.checked : el.type !== 'number' && el.value) act++; });
+    const d = document.createElement('details'); d.className = 'filt'; d.open = EXPAND_ALL || act > 0 && lsGet('filt_open_v1', '0') === '1';
+    d.innerHTML = `<summary>🔎 Filtres${act ? ` <span class="gr-cnt">${act} actif${act > 1 ? 's' : ''}</span>` : ''}</summary>`;
+    root.insertBefore(d, bar); d.appendChild(bar);
+    d.addEventListener('toggle', () => lsSet('filt_open_v1', d.open ? '1' : '0'));
+  }
+  function trimKpis(root) {
+    root.querySelectorAll('.kpis').forEach(k => {
+      if (k.dataset.trim || k.children.length <= 6 || k.closest('.cl-stats, .ses')) return; k.dataset.trim = '1';
+      const extra = k.children.length - 4; k.classList.add('kpis-trim'); k.classList.toggle('kpis-open', EXPAND_ALL || lsGet(V10_LS.kpi, '0') === '1');
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'kpi-more';
+      const lab = () => { b.textContent = k.classList.contains('kpis-open') ? 'Moins d\'indicateurs ▴' : `＋ ${extra} indicateurs ▾`; };
+      lab(); b.onclick = () => { k.classList.toggle('kpis-open'); lsSet(V10_LS.kpi, k.classList.contains('kpis-open') ? '1' : '0'); lab(); };
+      k.insertAdjacentElement('afterend', b);
+    });
+    const tk = root.querySelector('.kpis .kpi'); // badge « peu fiable » sur le nombre de trades
+    if (tk && /trades/i.test((tk.querySelector('.l') || {}).textContent || '')) { const n = parseInt(tk.querySelector('.v').textContent, 10); if (n < N_MIN && !tk.querySelector('.nb')) tk.querySelector('.l').insertAdjacentHTML('beforeend', ` <span class="nb" title="Moins de ${N_MIN} trades : toutes les statistiques de cette sélection sont peu fiables">n&lt;${N_MIN}</span>`); }
+  }
+
+  function postRender() {
+    const main = document.getElementById('main'); if (!main) return;
+    try { nBadges(main); } catch (e) {}
+    try { helpify(main); } catch (e) {}
+    if (['dashboard', 'journal'].includes(view)) try { foldFilters(main); } catch (e) {}
+    if (['dashboard', 'reviews'].includes(view)) try { trimKpis(main); } catch (e) {}
+    try { foldifyInPlace(view); } catch (e) { console.error(e); }
+  }
+  (function observe() {
+    const go = () => {
+      const main = document.getElementById('main'), modal = document.getElementById('modal'); if (!main || !modal) return setTimeout(go, 50);
+      let busy = false;
+      new MutationObserver(() => { if (busy) return; busy = true; try { postRender(); } finally { setTimeout(() => { busy = false; }, 0); } }).observe(main, { childList: true });
+      new MutationObserver(() => { if (modal.childElementCount) { try { nBadges(modal); helpify(modal); } catch (e) {} } }).observe(modal, { childList: true });
+    };
+    go();
+  })();
+
+  /* ---- 4. revues : historique en une ligne par période ---- */
+  function reviewHistoryHTML() {
+    const r = ui.rev, all = enriched(); if (!r.start) return '';
+    let p = S.period(r.type, r.start); const rows = [];
+    for (let i = 0; i < 8; i++) {
+      p = S.shiftPeriod(r.type, p.start, -1);
+      const ts = S.inPeriod(all, p), sm = S.summary(ts), done = reviewDone(r.type, p.start);
+      rows.push(`<tr class="click rh-row" data-rev="${r.type}|${p.start}"><td>${esc(periodLabel(r.type, p))}</td><td class="num">${sm.n}</td><td class="num ${cls(sm.net)}">${sm.n ? sgn(sm.net) : '–'}</td><td>${done ? '<span class="rh-ok">✓ faite</span>' : sm.n ? '<span class="rh-todo">à faire</span>' : '<span class="muted">–</span>'}</td></tr>`);
+    }
+    return `<h2>Historique</h2><div class="twrap"><table><thead><tr><th>Période</th><th class="num">Trades</th><th class="num">Net R</th><th>Revue</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  }
+  { const _rr = renderReviews; renderReviews = function () { _rr(); try { $('#main').insertAdjacentHTML('beforeend', reviewHistoryHTML()); document.querySelectorAll('.rh-row').forEach(row => row.addEventListener('click', () => { const [type, start] = row.dataset.rev.split('|'); ui.rev.type = type; ui.rev.start = start; renderReviews(); window.scrollTo(0, 0); })); } catch (e) {} }; }
+
+  /* ---- 10. corrélation checklist ↔ résultat ---- */
+  function pearson(x, y) {
+    const n = x.length; if (n < 3) return null;
+    const mx = meanOf(x), my = meanOf(y); let sxy = 0, sx = 0, sy = 0;
+    for (let i = 0; i < n; i++) { sxy += (x[i] - mx) * (y[i] - my); sx += (x[i] - mx) ** 2; sy += (y[i] - my) ** 2; }
+    if (!sx || !sy) return { r: null, n };
+    const r = sxy / Math.sqrt(sx * sy), df = n - 2, t = r * Math.sqrt(df / Math.max(1e-12, 1 - r * r));
+    const p = vIbeta(df / (df + t * t), df / 2, 0.5);
+    const z = Math.atanh(Math.max(-0.999999, Math.min(0.999999, r))), se = 1 / Math.sqrt(Math.max(1, n - 3));
+    return { r, n, p, ci: n > 3 ? [Math.tanh(z - 1.96 * se), Math.tanh(z + 1.96 * se)] : [null, null] };
+  }
+  function ranks(a) { const s = a.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]), r = new Array(a.length); for (let i = 0; i < s.length;) { let j = i; while (j + 1 < s.length && s[j + 1][0] === s[i][0]) j++; for (let k = i; k <= j; k++) r[s[k][1]] = (i + j) / 2 + 1; i = j + 1; } return r; }
+  function scatterSVG(pts) {
+    const W = 320, H = 160, L = 34, B = 22, ys = pts.map(p => p[1]), y0 = Math.min(-1, ...ys), y1 = Math.max(1, ...ys);
+    const X = x => L + x * (W - L - 22), Y = y => 8 + (y1 - y) / (y1 - y0) * (H - B - 8);
+    const ticks = [y0, 0, y1].map(v => `<text x="${L - 4}" y="${Y(v) + 3}" text-anchor="end">${num(v, 1)}</text><line x1="${L}" x2="${W - 8}" y1="${Y(v)}" y2="${Y(v)}" class="sc-g"/>`).join('');
+    return `<svg class="scatter" viewBox="0 0 ${W} ${H}" role="img" aria-label="Remplissage de la checklist (x) et résultat en R (y)">${ticks}
+      ${[0, .5, 1].map(v => `<text x="${X(v)}" y="${H - 6}" text-anchor="middle">${Math.round(v * 100)} %</text>`).join('')}
+      ${pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3.5" class="${p[1] > 0 ? 'sc-w' : p[1] < 0 ? 'sc-l' : 'sc-b'}"/>`).join('')}</svg>`;
+  }
+  function checklistCorrHTML(ts) {
+    const T = ts.filter(takenT).filter(t => S.filled(t.ret)), W = T.filter(t => t.checklistSnap && t.checklistSnap.total);
+    const head = `<h2>Checklist ↔ résultat</h2>`;
+    if (!W.length) return head + `<div class="note">Aucun trade n'a encore de checklist figée : la corrélation sera calculée dès que tes trades auront une checklist jointe (bouton ✅ puis « 📌 Figer (entrée) »).</div>`;
+    const x = W.map(t => snapRate(t.checklistSnap)), y = W.map(t => +t.ret), pr = pearson(x, y);
+    const sp = W.length >= 3 ? pearson(ranks(x), ranks(y)) : null;
+    const bk = [['< 80 %', t => snapRate(t.checklistSnap) < .8], ['80 – 99 %', t => { const r = snapRate(t.checklistSnap); return r >= .8 && r < 1; }], ['100 %', t => snapRate(t.checklistSnap) >= 1]];
+    const none = T.filter(t => !(t.checklistSnap && t.checklistSnap.total));
+    const line = (l, a) => { const r = rets(a), ci = meanCI(r); return `<tr><td>${l}</td><td class="num">${r.length}</td><td class="num">${r.length ? pct(r.filter(v => v > 0).length / r.length) : '–'}</td><td class="num ${cls(meanOf(r))}">${r.length ? sgn(meanOf(r)) : '–'}</td><td class="num">${ci[0] === null ? '–' : `[${num(ci[0])} ; ${num(ci[1])}]`}</td></tr>`; };
+    const full = W.filter(bk[2][1]), part = W.filter(t => !bk[2][1](t));
+    const wF = full.filter(t => t.ret > 0).length, wP = part.filter(t => t.ret > 0).length;
+    const pW = full.length && part.length ? fisherP(wF, full.length - wF, wP, part.length - wP) : null, pE = welchP(rets(full), rets(part)), pFr = welchP(rets(W), rets(none));
+    const rTxt = pr && pr.r !== null ? `r = ${num(pr.r, 2)}` : 'r indéfini';
+    const minR = W.length > 3 ? 2.8 / Math.sqrt(W.length) : null;
+    let verdict;
+    if (W.length < N_MIN) verdict = `<b>Échantillon insuffisant</b> : ${W.length} trade(s) avec checklist figée, il en faut au moins ${N_MIN} avant toute conclusion.`;
+    else if (pr && pr.r !== null && pr.p < 0.05) verdict = `<b>Lien statistiquement significatif</b> (p = ${fmtP(pr.p)}) : ${pr.r > 0 ? 'plus la checklist est remplie, meilleur est le résultat' : 'un remplissage plus élevé va avec des résultats plus faibles'} sur cet échantillon. Corrélation n'est pas causalité.`;
+    else verdict = `<b>Pas de lien démontré</b> (p = ${pr && pr.p !== undefined ? fmtP(pr.p) : '–'}). Cela ne prouve pas l'absence d'effet : avec n = ${W.length}, seule une corrélation |r| ≥ ${minR ? num(Math.min(1, minR), 2) : '–'} serait détectable (puissance 80 %).`;
+    return head + `<div class="card"><div class="kpis">
+        <div class="kpi"><div class="l">Corrélation remplissage ↔ R</div><div class="v ${pr && pr.p < 0.05 ? (pr.r > 0 ? 'pos' : 'neg') : ''}" data-r="${esc(rTxt)}">${pr && pr.r !== null ? num(pr.r, 2) : '–'}</div><div class="s">Pearson · IC95 % ${pr && pr.ci && pr.ci[0] !== null ? `[${num(pr.ci[0], 2)} ; ${num(pr.ci[1], 2)}]` : '–'} · p = ${pr ? fmtP(pr.p) : '–'}</div></div>
+        <div class="kpi"><div class="l">Corrélation de rang</div><div class="v">${sp && sp.r !== null ? num(sp.r, 2) : '–'}</div><div class="s">Spearman · p = ${sp ? fmtP(sp.p) : '–'}</div></div>
+        <div class="kpi"><div class="l">Trades analysés</div><div class="v">${W.length}</div><div class="s">${none.length} sans checklist figée</div></div></div>
+      <p class="small cc-verdict">${verdict}</p>
+      ${scatterSVG(W.map((t, i) => [x[i], y[i]]))}
+      <div class="twrap" style="max-height:none;margin-top:10px"><table><thead><tr><th>Remplissage</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Espérance</th><th class="num">IC95 %</th></tr></thead><tbody>
+        ${bk.map(([l, f]) => line(l, W.filter(f))).join('')}${line('Sans checklist', none)}</tbody></table></div>
+      <p class="muted small">Tests : win rate 100 % vs incomplète, p = ${fmtP(pW)} (Fisher exact) · espérance 100 % vs incomplète, p = ${fmtP(pE)} (Welch) · avec vs sans checklist figée, p = ${fmtP(pFr)} (Welch). Plusieurs tests sur les mêmes données : un p &lt; 0,05 isolé peut être dû au hasard (correction de Bonferroni : seuil 0,017 pour 3 tests). Le remplissage est mesuré au moment du gel, avant l'entrée.</p></div>`;
+  }
+  { const _ra = renderAnalysis; renderAnalysis = function () { _ra(); try { const ts = DB.trades.filter(takenT).filter(t => S.filled(t.ret)); const at = [...$('#main').children].find(c => c.tagName === 'H2' && /^Par catégorie/.test(c.textContent)); const html = checklistCorrHTML(ts); if (at) at.insertAdjacentHTML('beforebegin', html); else $('#main').insertAdjacentHTML('beforeend', html); } catch (e) { console.error(e); } }; }
+  { const _rd = renderDashboard; renderDashboard = function () { _rd(); try { const c = document.querySelector('.cl-stats'); if (!c) return; const W = enriched().filter(takenT).filter(t => S.filled(t.ret) && t.checklistSnap && t.checklistSnap.total); const pr = pearson(W.map(t => snapRate(t.checklistSnap)), W.map(t => +t.ret)); if (pr && pr.r !== null) c.insertAdjacentHTML('beforeend', `<p class="small">Corrélation remplissage ↔ R (tous les trades) : <b>r = ${num(pr.r, 2)}</b>, p = ${fmtP(pr.p)}, n = ${pr.n}${pr.n < N_MIN ? ` <span class="nb">n&lt;${N_MIN}</span>` : ''} · détail dans <a href="#/analysis">Analyse</a>.</p>`); } catch (e) {} }; }
+
+  /* ---- 5. formulaire en 3 étapes ---- */
+  const STEP_DEF = () => [
+    ['pre', '① Avant l\'entrée', ['f-date', 'f-instrument', 'f-direction', 'f-session', 'f-planId', 'f-setup', 'f-bias', 'f-poi', 'f-killzone', 'f-sweep', 'f-plannedR', 'f-slPips', 'f-risk', 'f-emoEntry']],
+    ['exec', '② Exécution', ['f-entryTime', 'f-exitTime', 'f-kzind', 'f-entry', 'f-sl', 'f-tp', 'f-execPoi', 'f-management', 'f-exitType', 'f-ret', 'f-rconv', 'f-emoDuring']],
+    ['post', '③ Après', ['f-planFollow', 'f-riskRespected', 'f-invalidation', 'f-fomo', 'f-overtrade', 'f-revenge', 'f-mtags', 'f-mistakes', 'f-notes', 'f-improvement', 'f-emoExit']],
+    ['more', '＋ Détails', ['f-maePips', 'f-mfePips', 'f-grBroken', 'f-duration', 'f-style', 'f-corr1', 'f-corr2'].concat(SLOTS.map(([k]) => 'f-s-' + k))],
+  ];
+  const fieldBox = el => el.closest('.wide') || el.closest('.emo-field, .ms-field, .snap-box, label, .kz-ind') || el;
+  const isFilled = el => { if (!el) return false; if (el.matches('details.ms')) return !!el.querySelector('input:checked'); if (el.type === 'checkbox') return el.checked; return String(el.value || '').trim() !== ''; };
+  function formSteps(isNew) {
+    const m = document.getElementById('modal'), form = m && m.querySelector('.form'); if (!form || form.dataset.steps) return;
+    form.dataset.steps = '1'; form.classList.add('form-steps');
+    const top = document.createElement('div'); top.className = 'fstep-top';
+    form.querySelectorAll('.snap-box, #f-lockbar').forEach(x => top.appendChild(x));
+    const helps = { pre: [], exec: [], more: [] };
+    form.querySelectorAll('fieldset').forEach(fs => { const lg = (fs.querySelector('legend') || {}).textContent || ''; fs.querySelectorAll(':scope > p.muted').forEach(p => (/Critères/.test(lg) ? helps.pre : /Exécution/.test(lg) ? helps.exec : helps.more).push(p)); });
+    const steps = STEP_DEF().map(([k, title, ids]) => {
+      const d = document.createElement('details'); d.className = 'fstep'; d.dataset.step = k;
+      d.innerHTML = `<summary><span class="fstep-t">${title}</span><span class="fstep-c"></span></summary><div class="fstep-b row"></div>`;
+      const b = d.querySelector('.fstep-b');
+      ids.forEach(id => { const el = document.getElementById(id); if (el && form.contains(el) && !el.closest('.fstep')) b.appendChild(fieldBox(el)); });
+      (helps[k] || []).forEach(p => b.appendChild(p));
+      return d;
+    });
+    // champs non prévus -> Détails
+    const more = steps[3].querySelector('.fstep-b');
+    form.querySelectorAll('input, select, textarea, details.ms').forEach(el => { if (!el.id || el.closest('.fstep, .fstep-top, .ms-list')) return; if (el.closest('details.ms') && el.tagName === 'INPUT') return; more.appendChild(fieldBox(el)); });
+    form.innerHTML = '';
+    form.appendChild(top); steps.forEach(s => { if (s.querySelector('.fstep-b').children.length) form.appendChild(s); });
+    if (!top.children.length) top.remove();
+    const count = () => steps.forEach(s => {
+      const els = [...s.querySelectorAll('.fstep-b input:not([type=checkbox]), .fstep-b select, .fstep-b textarea, .fstep-b details.ms')].filter(e => !e.closest('details.ms') || e.matches('details.ms'));
+      const f = els.filter(isFilled).length; const c = s.querySelector('.fstep-c'); c.textContent = `${f}/${els.length}`; c.className = 'fstep-c' + (f === els.length ? ' ok' : '');
+    });
+    count(); m.addEventListener('input', count); m.addEventListener('change', count);
+    let opened = false;
+    if (!isNew) for (const s of steps.slice(0, 3)) { const c = s.querySelector('.fstep-c').textContent.split('/'); if (+c[0] < +c[1]) { s.open = true; opened = true; break; } }
+    if (!opened) steps[0].open = true;
+    if (EXPAND_ALL) steps.forEach(s => { s.open = true; });
+  }
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-goto]'); if (!b) return; const el = document.getElementById(b.dataset.goto); for (let d = el && el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true; }, true);
+  { const _et = editTrade; editTrade = function (n) { _et(n); try { formSteps(n === null || n === undefined); } catch (e) { console.error(e); } }; }
+
+  /* ---- 8. mode Session (avec calculateur) ---- */
+  let _sesTimer = null;
+  function sesLiveHTML() {
+    const g = getGuardrails(), st = todayStats(), tz = newsCfg().tz, now = tzParts(Date.now(), tz), kz = killzoneAt(now.time);
+    const left = Math.max(0, g.maxTrades - st.n), riskLeft = Math.max(0, st.losses - g.maxLossR);
+    const al = g.enabled ? guardrailAlerts().alerts.filter(a => a.level === 'danger') : [];
+    const evs = (typeof alertEvents === 'function' ? alertEvents() : []).filter(e => e.ts > Date.now() - 5 * 60e3).slice(0, 3);
+    const mins = ts => { const m = Math.round((ts - Date.now()) / 60000); return m <= 0 ? 'en cours' : m < 60 ? `dans ${m} mn` : `dans ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`; };
+    const snap = pendingSnap();
+    return `<div class="ses-head"><div><b class="ses-clock">${esc(now.time)}</b> <span class="muted small">${esc(tz || '')}</span></div>
+        ${kz ? `<span class="ses-kz ${kz.inKz ? 'in' : 'out'}">${kz.inKz ? '● Killzone ' + esc(kz.name) : '○ Hors killzone'}</span>` : ''}
+        <button class="btn" id="ses-exit">Quitter</button></div>
+      ${al.length ? `<div class="gr-alert gr-danger">${al.map(a => a.icon + ' ' + esc(a.msg)).join('<br>')}</div>` : ''}${newsBlockPill()}
+      <div class="ses-grid">
+        <div class="card ses-risk"><h3>Aujourd'hui</h3>${g.enabled ? `<div class="ses-nums">
+          <div><span class="l">Trades</span><b>${st.n}/${g.maxTrades}</b><span class="s">${left} restant${left > 1 ? 's' : ''}</span></div>
+          <div><span class="l">Net</span><b class="${cls(st.net)}">${sgn(st.net)} R</b><span class="s">objectif +${num(g.dailyTargetR)} R</span></div>
+          <div><span class="l">Risque restant</span><b class="${riskLeft <= 1 ? 'neg' : ''}">${num(riskLeft)} R</b><span class="s">avant max loss ${sgn(g.maxLossR)} R</span></div></div>` : '<p class="muted small">Garde-fous désactivés (onglet Guardrails).</p>'}</div>
+        <div class="card ses-news"><h3>Prochaines news</h3>${evs.length ? evs.map(e => `<div class="ses-ev"><b>${esc(tzParts(e.ts, tz).time)}</b> <span class="ccy">${esc(e.country)}</span> ${esc(trunc(e.title, 38))} <span class="muted small">${mins(e.ts)}</span></div>`).join('') : '<p class="muted small">Aucune news filtrée à venir (réglages dans News).</p>'}</div>
+        <div class="card ses-cl"><h3>Checklist</h3>${snap ? `<p>📌 Figée à <b>${esc(snap.time)}</b> · ${snap.done}/${snap.total} (${pct(snapRate(snap))})</p>` : '<p class="muted small">Pas encore figée aujourd\'hui.</p>'}<a class="btn" href="checklist.html" target="_blank" rel="noopener">✅ Ouvrir la checklist</a></div>
+      </div>`;
+  }
+  function renderSession() {
+    renderCalculator();
+    const calcNodes = [...$('#main').childNodes];
+    $('#main').innerHTML = `<div class="ses ses-keep"><div id="ses-live"></div><div class="ses-focus">${focusPills()}</div>
+      <div class="card ses-calc"><h3>Calculateur de position</h3><div id="ses-calc"></div></div>
+      <button class="btn primary ses-new" id="ses-new">+ Enregistrer un trade</button></div>`;
+    const box = $('#ses-calc'); calcNodes.forEach(n => box.appendChild(n));
+    box.querySelectorAll('h1').forEach(h => h.remove()); box.querySelectorAll('h2').forEach(h => h.remove());
+    const live = () => { const el = document.getElementById('ses-live'); if (!el || view !== 'session') { clearInterval(_sesTimer); return; } el.innerHTML = sesLiveHTML(); const x = document.getElementById('ses-exit'); if (x) x.onclick = () => { location.hash = '#/' + (renderSession.prev || 'dashboard'); }; };
+    live(); clearInterval(_sesTimer); _sesTimer = setInterval(live, 30000);
+    $('#ses-new').onclick = () => editTrade(null);
+    if (!NEWS_EVENTS.length) try { loadNewsEvents().then(() => { if (view === 'session') live(); }).catch(() => {}); } catch (e) {}
+  }
+  { const _r = render; render = function () { document.body.classList.toggle('session-mode', view === 'session'); if (view !== 'session') { renderSession.prev = view; clearInterval(_sesTimer); } _r(); }; }
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {
@@ -3786,12 +4114,12 @@
   }
 
   /* ---------- routage ---------- */
-  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'setups', 'sanctuary', 'bvl', 'data'];
+  const VIEWS = ['dashboard', 'compare', 'journal', 'reviews', 'guardrails', 'news', 'trading', 'plan', 'notebook', 'calc', 'analysis', 'setups', 'sanctuary', 'bvl', 'data', 'session'];
   function render() {
     hideNews(); hideTrading(); updateStatusBar();
     $('#dbname').textContent = (DB && DB.meta && DB.meta.name) || 'Journal de backtest';
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === view));
-    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, setups: renderSetups, sanctuary: renderSanctuary, bvl: renderBvL, data: renderData }[view] || renderDashboard)();
+    ({ dashboard: renderDashboard, compare: renderCompare, journal: renderJournal, reviews: renderReviews, guardrails: renderGuardrails, news: renderNews, plan: renderTradingPlan, calc: renderCalculator, trading: renderTrading, notebook: renderNotebook, analysis: renderAnalysis, setups: renderSetups, sanctuary: renderSanctuary, bvl: renderBvL, data: renderData, session: renderSession }[view] || renderDashboard)();
   }
   function route() { const v = (location.hash.match(/^#\/(\w+)/) || [])[1]; view = VIEWS.includes(v) ? v : 'dashboard'; render(); }
   window.addEventListener('hashchange', route);
