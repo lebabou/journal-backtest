@@ -284,7 +284,7 @@
         '<div class="fp-foot">Issue de la journ\u00e9e du ' + esc(fmtDayFR(ci.day)) + (ci.items.length > 1 ? ' \u2014 choisissez celle \u00e0 afficher' : '') + '</div>' +
         ci.items.map(function(it) {
           return '<label class="fp-opt"><input type="radio" name="fp-pick" value="' + it.n + '"' + (it.n === ci.current.n ? ' checked' : '') + '>' +
-            '<span>' + esc(it.text) + '<small>trade #' + it.n + (it.instrument ? ' \u00b7 ' + esc(it.instrument) : '') + '</small></span></label>';
+            '<span>' + esc(it.text) + '<small>' + (it.n < 0 ? 'post-market' : 'trade #' + it.n) + (it.instrument ? ' \u00b7 ' + esc(it.instrument) : '') + '</small></span></label>';
         }).join('');
     }
     document.body.appendChild(pop);
@@ -1044,7 +1044,7 @@
         planId: v('planId'), planName: (planById(v('planId')) || {}).name || '',
         overtrade: v('overtrade'), revenge: v('revenge'), guardrailsBroken: grBrokenValue(), improvement: v('improvement'), improvementAt: v('improvement') ? (v('improvement') !== String(t.improvement || '').trim() ? todayISO() : (t.improvementAt || todayISO())) : '',
         planFollow: v('planFollow'), management: v('management'), mistakes: v('mistakes'), notes: v('notes'), fomo: v('fomo'),
-        bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'),
+        goodTrade: v('goodTrade'), execScore: v('execScore') === '' ? null : +v('execScore'), execReview: v('execReview'), bias: v('bias'), poi: v('poi'), killzone: v('killzone'), sweep: v('sweep'),
       };
       Object.assign(nt, v3Collect(t, isNew, nt));
       const warns = v4Checks(nt);
@@ -3998,8 +3998,8 @@
   const STEP_DEF = () => [
     ['pre', '① Avant l\'entrée', ['f-date', 'f-instrument', 'f-direction', 'f-session', 'f-planId', 'f-setup', 'f-bias', 'f-poi', 'f-killzone', 'f-sweep', 'f-plannedR', 'f-slPips', 'f-risk', 'f-emoEntry']],
     ['exec', '② Exécution', ['f-entryTime', 'f-exitTime', 'f-kzind', 'f-entry', 'f-sl', 'f-tp', 'f-execPoi', 'f-management', 'f-exitType', 'f-ret', 'f-rconv', 'f-emoDuring']],
-    ['post', '③ Après', ['f-planFollow', 'f-riskRespected', 'f-invalidation', 'f-fomo', 'f-overtrade', 'f-revenge', 'f-mtags', 'f-mistakes', 'f-notes', 'f-improvement', 'f-emoExit']],
-    ['more', '＋ Détails', ['f-maePips', 'f-mfePips', 'f-grBroken', 'f-duration', 'f-style', 'f-corr1', 'f-corr2'].concat(SLOTS.map(([k]) => 'f-s-' + k))],
+    ['post', '③ Après', ['f-planFollow', 'f-riskRespected', 'f-invalidation', 'f-fomo', 'f-overtrade', 'f-revenge', 'f-goodTrade', 'f-execScore', 'f-execReview', 'f-mtags', 'f-mistakes', 'f-notes', 'f-emoExit']],
+    ['more', '＋ Détails', ['f-improvement', 'f-maePips', 'f-mfePips', 'f-grBroken', 'f-duration', 'f-style', 'f-corr1', 'f-corr2'].concat(SLOTS.map(([k]) => 'f-s-' + k))],
   ];
   const fieldBox = el => el.closest('.wide') || el.closest('.emo-field, .ms-field, .snap-box, label, .kz-ind') || el;
   const isFilled = el => { if (!el) return false; if (el.matches('details.ms')) return !!el.querySelector('input:checked'); if (el.type === 'checkbox') return el.checked; return String(el.value || '').trim() !== ''; };
@@ -4073,6 +4073,190 @@
     if (!NEWS_EVENTS.length) try { loadNewsEvents().then(() => { if (view === 'session') live(); }).catch(() => {}); } catch (e) {}
   }
   { const _r = render; render = function () { document.body.classList.toggle('session-mode', view === 'session'); if (view !== 'session') { renderSession.prev = view; clearInterval(_sesTimer); } _r(); }; }
+
+  /* ================= V11 : routine post-market ================= */
+  const PM_JOURNAL_MIN = 80;   // % de fiche remplie pour cocher « Journaling »
+  function pmData() { if (!DB.postMarket || typeof DB.postMarket !== 'object') DB.postMarket = {}; return DB.postMarket; }
+  function pmCfg() { const d = { remind: !IS_BT, delay: 30 }; if (!DB.pmCfg) DB.pmCfg = {}; Object.keys(d).forEach(k => { if (DB.pmCfg[k] === undefined) DB.pmCfg[k] = d[k]; }); return DB.pmCfg; }
+  const dayTrades = d => DB.trades.filter(t => t.date === d && takenT(t)).sort((a, b) => String(a.entryTime || '').localeCompare(String(b.entryTime || '')) || a.n - b.n);
+  const yesNo = v => v === 'Yes' || v === 'Oui' ? 'Yes' : v === 'No' || v === 'Non' ? 'No' : '';
+  function pmStatus(d, draft) {
+    const ts = dayTrades(d), rec = draft || pmData()[d] || {};
+    const get = (t, k) => draft && draft.trades && draft.trades[t.n] && draft.trades[t.n][k] !== undefined ? draft.trades[t.n][k] : t[k];
+    const fiches = ts.map(t => completeness(t).pct);
+    const items = [
+      ['journal', 'Journaling', !ts.length || fiches.every(p => p >= PM_JOURNAL_MIN), ts.length ? `${fiches.filter(p => p >= PM_JOURNAL_MIN).length}/${ts.length} fiche(s) remplie(s) à ${PM_JOURNAL_MIN} % ou plus` : 'aucun trade ce jour'],
+      ['exec', 'Revue de l\'exécution', !ts.length || ts.every(t => isSet(get(t, 'execScore')) && String(get(t, 'execReview') || '').trim()), ts.length ? `${ts.filter(t => isSet(get(t, 'execScore')) && String(get(t, 'execReview') || '').trim()).length}/${ts.length} trade(s) revu(s)` : 'aucun trade ce jour'],
+      ['good', 'Bons trades ≠ trades gagnants', !ts.length || ts.every(t => yesNo(get(t, 'goodTrade'))), ts.length ? `${ts.filter(t => yesNo(get(t, 'goodTrade'))).length}/${ts.length} trade(s) classé(s)` : 'aucun trade ce jour'],
+      ['lesson', 'Une leçon', !!String(rec.lesson || '').trim(), ''],
+      ['improvement', 'Une amélioration pour demain', !!String(rec.improvement || '').trim(), ''],
+    ];
+    return { items, done: items.filter(i => i[2]).length, total: items.length, ts };
+  }
+  const pmDone = d => { const r = pmData()[d]; return !!(r && r.done); };
+
+  function openPostMarket(d) {
+    d = d || todayISO();
+    const rec = Object.assign({ lesson: '', improvement: '' }, pmData()[d] || {}), ts = dayTrades(d);
+    const label = new Date(d + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    const opt = (vals, cur, ph) => `<option value="">${ph}</option>` + vals.map(([v, l]) => `<option value="${v}"${String(cur) === String(v) ? ' selected' : ''}>${l}</option>`).join('');
+    const tradeRow = t => `<div class="pm-trade" data-pmt="${t.n}">
+        <div class="pm-th"><b>#${t.n}</b> ${esc(t.entryTime || '')} ${esc(t.instrument || '')} ${esc(t.direction || '')} <span class="muted small">${esc(t.setup || '')}</span> <b class="${cls(t.ret)}">${sgn(t.ret)} R</b>
+          <button type="button" class="btn sm" data-pmopen="${t.n}">Voir la fiche</button>${completeness(t).pct < PM_JOURNAL_MIN ? `<button type="button" class="btn sm" data-pmedit="${t.n}">Compléter (${completeness(t).pct} %)</button>` : ''}</div>
+        <div class="pm-tf">
+          <label>Qualité d'exécution<select data-k="execScore">${opt([['5', '5 · parfaite'], ['4', '4 · bonne'], ['3', '3 · moyenne'], ['2', '2 · faible'], ['1', '1 · mauvaise']], t.execScore, '—')}</select></label>
+          <label>Bon trade (process respecté) ?<select data-k="goodTrade">${opt([['Yes', 'Oui'], ['No', 'Non']], yesNo(t.goodTrade), '—')}</select></label>
+          <label class="pm-wide">Comment j'ai exécuté (entrée, SL, gestion, sortie)<textarea data-k="execReview" rows="2" placeholder="Ex. entrée anticipée avant la confirmation 5 mn, SL bien placé sous le sweep, sortie trop tôt au premier repli…">${esc(t.execReview || '')}</textarea></label>
+        </div></div>`;
+    showModal(`<div class="mhead"><h1>🌙 Post-market <span class="muted small">${esc(label)}</span></h1></div>
+      <div class="pm-prog" id="pm-prog"></div>
+      <div class="pm-sec"><h3>1 · Journaling</h3><div id="pm-journal" class="small"></div></div>
+      <div class="pm-sec"><h3>2 · Revue de l'exécution et 3 · bons trades ≠ trades gagnants</h3>
+        ${ts.length ? ts.map(tradeRow).join('') : '<p class="muted small">Aucun trade ce jour : rien à revoir.</p>'}
+        ${ts.length ? '<p class="muted small">Un bon trade respecte ton plan et ton process, quel que soit le résultat. Une perte peut être un bon trade ; un gain obtenu hors plan est un mauvais trade.</p>' : ''}</div>
+      <div class="pm-sec"><h3>4 · Une leçon</h3><textarea id="pm-lesson" rows="2" placeholder="La leçon principale de la journée…">${esc(rec.lesson)}</textarea></div>
+      <div class="pm-sec"><h3>5 · Une amélioration pour demain</h3><textarea id="pm-impr" rows="2" placeholder="Une chose précise à faire mieux demain…">${esc(rec.improvement)}</textarea><p class="muted small">Elle s'affichera demain dans la pastille 🔧.</p></div>
+      ${IS_BT ? '' : `<label class="pm-remind"><input type="checkbox" id="pm-remind"${pmCfg().remind ? ' checked' : ''}> Me rappeler la routine ${pmCfg().delay} mn après la fin de ma dernière killzone (jours de semaine)</label>`}
+      <div class="actions"><button class="btn" id="pm-cancel">Fermer</button><button class="btn primary" id="pm-save">Enregistrer</button></div>`);
+    const draft = () => { const o = { lesson: $('#pm-lesson').value, improvement: $('#pm-impr').value, trades: {} };
+      document.querySelectorAll('[data-pmt]').forEach(row => { const r = o.trades[row.dataset.pmt] = {}; row.querySelectorAll('[data-k]').forEach(el => { r[el.dataset.k] = el.value; }); }); return o; };
+    const upd = () => {
+      const st = pmStatus(d, draft());
+      $('#pm-prog').innerHTML = `<div class="fp-top"><b>${st.done}/${st.total}</b><span class="fp-lbl">routine post-market</span></div><div class="fp-track"><span class="${st.done === st.total ? 'ok' : st.done >= 3 ? 'mid' : 'low'}" style="width:${Math.round(st.done / st.total * 100)}%"></span></div>
+        <div class="pm-items">${st.items.map(i => `<span class="pm-it ${i[2] ? 'ok' : ''}">${i[2] ? '✓' : '○'} ${esc(i[1])}</span>`).join('')}</div>`;
+      $('#pm-journal').innerHTML = `${st.items[0][2] ? '✓' : '○'} ${esc(st.items[0][3])}${st.items[0][2] ? '' : ' · complète les fiches signalées ci-dessous'}`;
+    };
+    upd(); $('#modal').addEventListener('input', upd); $('#modal').addEventListener('change', upd);
+    $('#pm-cancel').onclick = closeModal;
+    document.querySelectorAll('[data-pmopen]').forEach(b => b.onclick = () => openTrade(+b.dataset.pmopen));
+    document.querySelectorAll('[data-pmedit]').forEach(b => b.onclick = () => editTrade(+b.dataset.pmedit));
+    $('#pm-save').onclick = async () => {
+      const dr = draft();
+      Object.entries(dr.trades).forEach(([n, f]) => { const t = DB.trades.find(x => x.n === +n); if (!t) return; t.execScore = f.execScore === '' ? null : +f.execScore; t.execReview = f.execReview.trim(); t.goodTrade = f.goodTrade; });
+      const st = pmStatus(d, null), prev = pmData()[d] || {};
+      const st2 = pmStatus(d, { lesson: dr.lesson, improvement: dr.improvement });
+      pmData()[d] = { lesson: dr.lesson.trim(), improvement: dr.improvement.trim(), done: st2.done === st2.total, score: st2.done, at: prev.at && prev.done ? prev.at : new Date().toISOString() };
+      if (!IS_BT && $('#pm-remind')) pmCfg().remind = $('#pm-remind').checked;
+      if (await save(st2.done === st2.total ? 'Post-market terminé ✓' : `Post-market enregistré (${st2.done}/${st2.total})`)) { closeModal(); render(); }
+      void st;
+    };
+  }
+  document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-pmday]'); if (!b) return; e.preventDefault(); openPostMarket(b.dataset.pmday); });
+
+  /* amélioration du post-market -> pastille 🔧 du lendemain */
+  { const _ift = improvementsForToday; improvementsForToday = function () {
+      const base = _ift(); if (!DB) return base;
+      const today = todayISO(), floor = addDaysISO(today, -7);
+      const days = Object.keys(pmData()).filter(d => /^\d{4}-\d\d-\d\d$/.test(d) && d < today && d >= floor && String(pmData()[d].improvement || '').trim()).sort();
+      const pd = days[days.length - 1];
+      if (!pd || (base.day && base.day > pd)) return base;
+      const it = { n: -1, text: String(pmData()[pd].improvement).trim(), day: pd, instrument: '' };
+      if (base.day === pd) return { day: pd, items: [it].concat(base.items.filter(x => x.text.toLowerCase() !== it.text.toLowerCase())) };
+      return { day: pd, items: [it] };
+    }; }
+
+  /* calendrier : badge par jour + résumé dans le panneau du jour */
+  { const _rjc = renderJournalCal; renderJournalCal = function () {
+      let h = _rjc();
+      h = h.replace(/data-jday="(\d{4}-\d\d-\d\d)">(\s*)<span class="jc-d">(\d+)<\/span>/g, (m, d, sp, n) => {
+        const r = pmData()[d]; const b = r ? `<span class="jc-pm ${r.done ? 'ok' : 'part'}" title="Post-market ${r.done ? 'fait' : 'partiel (' + (r.score || 0) + '/5)'}">${r.done ? '🌙✓' : '🌙' + (r.score || 0) + '/5'}</span>` : '';
+        return `data-jday="${d}">${sp}<span class="jc-d">${n}</span>${b}`;
+      });
+      if (JCAL.day) {
+        const d = JCAL.day, r = pmData()[d], st = pmStatus(d);
+        const box = `<div class="jc-pmbox ${r && r.done ? 'ok' : ''}"><div><b>🌙 Post-market</b> · ${r ? (r.done ? 'fait ✓' : `partiel ${st.done}/${st.total}`) : (d <= todayISO() ? 'pas fait' : '–')}
+          ${r && r.lesson ? `<div class="small"><b>Leçon :</b> ${esc(r.lesson)}</div>` : ''}${r && r.improvement ? `<div class="small"><b>Amélioration :</b> ${esc(r.improvement)}</div>` : ''}</div>
+          ${d <= todayISO() ? `<button class="btn sm" data-pmday="${d}">${r ? 'Modifier' : 'Faire la routine'}</button>` : ''}</div>`;
+        h = h.replace(/(<div class="card jc-daylist"><h2[^>]*>[\s\S]*?<\/h2>)/, '$1' + box);
+      }
+      return h;
+    }; }
+
+  /* revues : leçons et améliorations de la période */
+  function pmPeriodHTML(p) {
+    const ds = Object.keys(pmData()).filter(d => d >= p.start && d <= p.end).sort(), days = [...new Set(DB.trades.filter(t => t.date >= p.start && t.date <= p.end).map(t => t.date))];
+    if (!ds.length && !days.length) return '';
+    const done = days.filter(pmDone).length;
+    const rows = ds.filter(d => pmData()[d].lesson || pmData()[d].improvement).map(d => `<li><b>${esc(new Date(d + 'T12:00:00Z').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }))}</b>${pmData()[d].lesson ? ` · Leçon : ${esc(pmData()[d].lesson)}` : ''}${pmData()[d].improvement ? ` · Amélioration : ${esc(pmData()[d].improvement)}` : ''}</li>`).join('');
+    return `<h2>Post-market de la période</h2><div class="card"><p class="small">Routine faite sur <b>${done}/${days.length}</b> jour(s) tradé(s)${days.length ? ` (${pct(done / days.length)})` : ''}.</p>${rows ? `<ul class="pm-list">${rows}</ul>` : '<p class="muted small">Aucune leçon notée sur la période.</p>'}</div>`;
+  }
+  { const _rr2 = renderReviews; renderReviews = function () { _rr2(); try { const r = ui.rev, p = S.period(r.type, r.start); const at = [...$('#main').children].find(c => c.tagName === 'H2' && /^Réflexion/.test(c.textContent)); const h = pmPeriodHTML(p); if (h) { if (at) at.insertAdjacentHTML('beforebegin', h); else $('#main').insertAdjacentHTML('beforeend', h); } } catch (e) { console.error(e); } }; }
+
+  /* dashboard : bons trades vs trades gagnants + taux de routine */
+  function goodWinHTML(ts) {
+    const T = ts.filter(takenT).filter(t => S.filled(t.ret)), C = T.filter(t => yesNo(t.goodTrade));
+    const first = Object.keys(pmData()).filter(k => /^\d{4}-/.test(k)).sort()[0];
+    const days = first ? [...new Set(T.map(t => t.date))].filter(x => x >= first) : [], done = days.filter(pmDone).length;
+    const head = `<h2>Post-market</h2>`;
+    const routine = `<div class="kpi"><div class="l">Routine post-market</div><div class="v">${days.length ? pct(done / days.length) : '–'}</div><div class="s">${first ? `${done}/${days.length} jour(s) tradé(s) depuis le ${first.slice(8)}/${first.slice(5, 7)}` : 'pas encore utilisée'}</div></div>`;
+    const sc = T.filter(t => isSet(t.execScore)).map(t => +t.execScore);
+    const execK = `<div class="kpi"><div class="l">Qualité d'exécution</div><div class="v">${sc.length ? num(meanOf(sc), 1) + '/5' : '–'}</div><div class="s">${sc.length} trade(s) noté(s)</div></div>`;
+    if (!C.length) return head + `<div class="card"><div class="kpis">${routine}${execK}</div><p class="muted small">Classe tes trades en « bon trade » ou non dans la routine post-market (bouton 🌙 du mode Session ou du calendrier) : le tableau bons trades / trades gagnants apparaîtra ici.</p></div>`;
+    const cell = (g, w) => C.filter(t => yesNo(t.goodTrade) === g && (w ? t.ret > 0 : t.ret <= 0));
+    const GW = cell('Yes', true), GL = cell('Yes', false), BW = cell('No', true), BL = cell('No', false);
+    const sum = a => a.reduce((s, t) => s + +t.ret, 0);
+    const c = (a, lbl, k) => `<td class="gw-c ${k}"><b>${a.length}</b> <span class="muted small">(${pct(a.length / C.length)})</span><div class="small ${cls(sum(a))}">${sgn(sum(a))} R</div><div class="muted small">${lbl}</div></td>`;
+    const gains = sum(GW) + sum(BW), luck = gains > 0 ? sum(BW) / gains : null;
+    const G = GW.length + GL.length, B = BW.length + BL.length, pF = G && B ? fisherP(GW.length, GL.length, BW.length, BL.length) : null;
+    const eG = meanOf(rets(GW.concat(GL))), eB = meanOf(rets(BW.concat(BL)));
+    return head + `<div class="card"><div class="kpis">${routine}${execK}
+        <div class="kpi"><div class="l">Gains venant de mauvais trades</div><div class="v ${luck > .2 ? 'neg' : ''}">${luck === null ? '–' : pct(luck)}</div><div class="s">part chanceuse du R gagné</div></div></div>
+      <div class="twrap" style="max-height:none;margin-top:12px"><table class="gw"><thead><tr><th></th><th>Gagnant</th><th>Perdant / BE</th></tr></thead><tbody>
+        <tr><th>Bon trade<div class="muted small">n = ${G}${G < N_MIN ? ` <span class="nb">n&lt;${N_MIN}</span>` : ''} · E ${eG === null ? '–' : sgn(eG)}</div></th>${c(GW, 'à répéter', 'ok')}${c(GL, 'bonne perte', 'mid')}</tr>
+        <tr><th>Mauvais trade<div class="muted small">n = ${B}${B < N_MIN ? ` <span class="nb">n&lt;${N_MIN}</span>` : ''} · E ${eB === null ? '–' : sgn(eB)}</div></th>${c(BW, 'gain chanceux', 'warn')}${c(BL, 'erreur', 'bad')}</tr></tbody></table></div>
+      <p class="muted small">${C.length}/${T.length} trades classés. Win rate bons trades ${G ? pct(GW.length / G) : '–'} contre ${B ? pct(BW.length / B) : '–'} pour les mauvais : p = ${fmtP(pF)} (Fisher exact). Un « gain chanceux » renforce un mauvais comportement : c'est la case à surveiller.</p></div>`;
+  }
+  FOLD_CFG.dashboard.hint['Post-market'] = b => { const v = b.querySelector('.kpi .v'); return v ? 'Routine ' + v.textContent : ''; };
+  { const _rd2 = renderDashboard; renderDashboard = function () { _rd2(); try {
+      const f = ui.dash; const ts = enriched().filter(t => (!f.from || t.date >= f.from) && (!f.to || t.date <= f.to) && (!f.instrument || t.instrument === f.instrument) && (!f.session || t.session === f.session));
+      const at = [...$('#main').children].find(c => c.tagName === 'H2' && /^Fenêtre glissante/.test(c.textContent));
+      const h = goodWinHTML(ts); if (at) at.insertAdjacentHTML('beforebegin', h); else $('#main').insertAdjacentHTML('beforeend', h);
+    } catch (e) { console.error(e); } }; }
+
+  /* mode Session : carte post-market */
+  { const _sl = sesLiveHTML; sesLiveHTML = function () {
+      const h = _sl(), d = todayISO(), st = pmStatus(d), r = pmData()[d];
+      const card = `<div class="card ses-pm ${r && r.done ? 'ok' : ''}"><h3>🌙 Post-market</h3><p>${r && r.done ? '✓ Routine faite aujourd\'hui' : `${st.done}/${st.total} · ${st.items.filter(i => !i[2]).map(i => i[1]).join(', ')}`}</p><button class="btn ${r && r.done ? '' : 'primary'}" data-pmday="${d}">${r && r.done ? 'Revoir' : 'Clôturer la session'}</button></div>`;
+      return h.replace('<div class="card ses-cl">', card + '<div class="card ses-cl">');
+    }; }
+
+  /* rappel : X mn après la fin de la dernière killzone active */
+  function pmReminderDue() {
+    if (IS_BT || !DB || !pmCfg().remind) return false;
+    const d = todayISO(), wd = new Date(d + 'T12:00:00Z').getUTCDay(); if (wd === 0 || wd === 6 || pmDone(d)) return false;
+    const kz = getGuardrails().killzones || {}; const act = (kz.sessions || []).filter(s => s.active && toMin(s.to) !== null); if (!act.length) return false;
+    const end = Math.max(...act.map(s => toMin(s.to))) + (+pmCfg().delay || 0);
+    const tz = newsCfg().tz, now = toMin(tzParts(Date.now(), tz).time);
+    return now !== null && now >= end;
+  }
+  function pmPill() { return pmReminderDue() ? `<a class="gr-pill gr-pill-review" href="#" data-pmday="${todayISO()}" title="Routine post-market à faire">🌙 Post-market à faire</a>` : ''; }
+  { const _sp = statusPills; statusPills = function () { return _sp() + pmPill(); }; }
+  setInterval(() => {
+    try {
+      if (!pmReminderDue()) return; const k = 'pm_reminded:' + todayISO();
+      if (lsGet(k, '') ) return; lsSet(k, '1');
+      notifySafe('🌙 Routine post-market', 'Journaling, revue d\'exécution, bons trades vs gagnants, une leçon, une amélioration pour demain.', 'pm-' + todayISO());
+      toast('🌙 Routine post-market à faire'); updateStatusBar();
+    } catch (e) {}
+  }, 60000);
+
+  /* formulaire de trade : champs post-market dans l'étape ③ ; fiche détaillée */
+  { const _et2 = editTrade; editTrade = function (n) {
+      _et2(n);
+      try {
+        const t = n === null || n === undefined ? {} : (DB.trades.find(x => x.n === n) || {}), post = document.querySelector('#modal details.fstep[data-step="post"] .fstep-b');
+        if (!post || document.getElementById('f-goodTrade')) return;
+        const o = (vals, cur) => '<option value="">—</option>' + vals.map(([v, l]) => `<option value="${v}"${String(cur) === v ? ' selected' : ''}>${l}</option>`).join('');
+        post.insertAdjacentHTML('afterbegin', `<label>Bon trade (process) ?<select id="f-goodTrade">${o([['Yes', 'Oui'], ['No', 'Non']], yesNo(t.goodTrade))}</select></label>
+          <label>Qualité d'exécution (1–5)<select id="f-execScore">${o([['5', '5'], ['4', '4'], ['3', '3'], ['2', '2'], ['1', '1']], isSet(t.execScore) ? String(t.execScore) : '')}</select></label>
+          <label class="wide">Revue de l'exécution<textarea id="f-execReview" rows="2">${esc(t.execReview || '')}</textarea></label>`);
+      } catch (e) { console.error(e); }
+    }; }
+  { const _ot = openTrade; openTrade = function (n) {
+      _ot(n);
+      try { const t = DB.trades.find(x => x.n === n); const det = document.querySelector('#modal .details'); if (!t || !det || (!yesNo(t.goodTrade) && !isSet(t.execScore) && !t.execReview)) return;
+        det.insertAdjacentHTML('afterend', `<h3>Post-market</h3><div class="textblock">${yesNo(t.goodTrade) ? `<b>Bon trade :</b> ${yesNo(t.goodTrade) === 'Yes' ? 'oui' : 'non'}${t.ret > 0 && yesNo(t.goodTrade) === 'No' ? ' (gain chanceux)' : t.ret <= 0 && yesNo(t.goodTrade) === 'Yes' ? ' (bonne perte)' : ''}\n` : ''}${isSet(t.execScore) ? `<b>Qualité d'exécution :</b> ${t.execScore}/5\n` : ''}${t.execReview ? `<b>Revue :</b> ${esc(t.execReview)}` : ''}</div>`);
+      } catch (e) {} }; }
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }

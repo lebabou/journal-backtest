@@ -28,3 +28,9 @@ Aucun serveur, aucun tiers. L'application tourne entièrement dans votre navigat
 - Formulaire de trade en 3 étapes (Avant l'entrée, Exécution, Après) + Détails.
 - ⏱ Session : écran épuré (heure, killzone, risque restant, prochaines news, checklist, calculateur).
 - Badge « n<20 » : statistique sur moins de 20 trades, peu fiable.
+
+## Routine post-market (V11)
+- Mode Session → « 🌙 Clôturer la session », ou calendrier du Journal → jour → « Faire la routine ».
+- 5 points : Journaling (coché si toutes les fiches du jour sont remplies à 80 % ou plus), revue de l'exécution de chaque trade (note 1–5 + commentaire), bon trade oui/non, une leçon, une amélioration pour demain (affichée le lendemain dans la pastille 🔧).
+- Rappel 30 mn après la fin de ta dernière killzone (jours de semaine), désactivable dans la routine.
+- Dashboard → Post-market : taux de routine, qualité d'exécution, tableau bons trades / trades gagnants. Revues : leçons de la période.

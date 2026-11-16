@@ -690,3 +690,27 @@ details.fstep[open]>summary::after{transform:rotate(90deg)}
 @media(max-width:600px){:root[data-compact] .kpis{grid-template-columns:1fr 1fr}}
 .gr-drawer[hidden],.top-menu[hidden]{display:none!important}
 .fp-miss[hidden]{display:none!important}
+
+/* ===== V11 : post-market ===== */
+.pm-prog{position:sticky;top:0;z-index:2;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.pm-items{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pm-it{font-size:12px;padding:2px 9px;border-radius:12px;background:var(--panel2);color:var(--muted)}
+.pm-it.ok{color:var(--win)}
+.pm-sec{margin:0 0 14px}
+.pm-sec h3{margin:0 0 8px}
+.pm-sec textarea,.pm-tf textarea{width:100%}
+.pm-trade{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 8px;background:var(--panel)}
+.pm-th{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;font-size:13.5px;margin-bottom:8px}
+.pm-tf{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 12px}
+.pm-tf label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.pm-tf .pm-wide{grid-column:1/-1}
+.pm-remind{display:flex;gap:8px;align-items:center;font-size:13px;margin:4px 0 8px}
+.jc-pm{display:block;font-size:10px;font-weight:700;color:var(--muted)}.jc-pm.ok{color:var(--accent)}
+.jc-pmbox{display:flex;align-items:center;gap:10px;justify-content:space-between;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;margin:0 0 10px}
+.jc-pmbox.ok{border-style:solid;border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.jc-pmbox>div{min-width:0}
+.ses-pm p{margin:0 0 8px;font-size:13px}.ses-pm.ok h3{color:var(--accent)}
+.pm-list{margin:6px 0 0;padding-left:18px;font-size:13px}.pm-list li{margin:3px 0}
+table.gw td,table.gw th{vertical-align:top}
+.gw-c.ok b{color:var(--win)}.gw-c.mid b{color:var(--be)}.gw-c.warn b{color:var(--be)}.gw-c.bad b{color:var(--loss)}
+table.gw th div{text-transform:none;letter-spacing:0;font-weight:500;margin-top:3px}
