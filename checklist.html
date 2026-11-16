@@ -36,7 +36,11 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 .item-wrap{border-bottom:1px solid var(--line)}
 .item-wrap:last-child{border-bottom:none}
-.item-wrap .item{border-bottom:none;padding-bottom:4px}
+.item-wrap .item{border-bottom:none;padding-bottom:10px;flex:1}
+.item-line{display:flex;align-items:flex-start}
+.note-btn{flex:none;border:0;background:none;font-size:15px;padding:9px 12px;cursor:pointer;opacity:.35;filter:grayscale(1)}
+.note-btn.has,.note-btn[aria-expanded="true"]{opacity:1;filter:none}
+.item-note[hidden]{display:none}
 .item-wrap.done .item{color:var(--muted);text-decoration:line-through}
 .item-note{display:block;width:calc(100% - 42px);margin:0 14px 10px 42px;padding:7px 9px;font:inherit;font-size:13px;line-height:1.4;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;resize:none;overflow:hidden;min-height:38px}
 .item-note:focus{outline:none;border-color:var(--accent)}
@@ -115,9 +119,10 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
       sec.items.forEach(function(item, ii) {
         var key = si + '-' + ii, checked = !!st.checks[key], note = st.notes[key] || '';
         items += '<div class="item-wrap' + (checked ? ' done' : '') + '" data-key="' + key + '" data-sec="' + si + '">' +
-          '<label class="item"><input type="checkbox" data-key="' + key + '"' + (checked ? ' checked' : '') + '>' +
+          '<div class="item-line"><label class="item"><input type="checkbox" data-key="' + key + '"' + (checked ? ' checked' : '') + '>' +
           '<span>' + esc(item) + '</span></label>' +
-          '<textarea class="item-note" data-key="' + key + '" rows="1" placeholder="Note pour ce point\u2026">' + esc(note) + '</textarea>' +
+          '<button type="button" class="note-btn' + (note ? ' has' : '') + '" data-key="' + key + '" aria-label="Ajouter une note" aria-expanded="' + (note ? 'true' : 'false') + '">\ud83d\udcdd</button></div>' +
+          '<textarea class="item-note" data-key="' + key + '" rows="1" placeholder="Note pour ce point (facultatif)\u2026"' + (note ? '' : ' hidden') + '>' + esc(note) + '</textarea>' +
           '</div>';
       });
       html += '<div class="section"><div class="section-head">' + esc(sec.title) +
@@ -141,6 +146,14 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
         refreshCounts();
       };
     });
+    Array.prototype.forEach.call(document.querySelectorAll('.note-btn'), function(b) {
+      b.onclick = function() {
+        var ta = document.querySelector('textarea.item-note[data-key="' + b.dataset.key + '"]');
+        if (ta.hidden) { ta.hidden = false; b.setAttribute('aria-expanded', 'true'); grow(ta); ta.focus(); }
+        else if (!ta.value.trim()) { ta.hidden = true; b.setAttribute('aria-expanded', 'false'); }
+        else ta.focus();
+      };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('textarea.item-note'), function(ta) {
       grow(ta);
       var t = null;
@@ -153,7 +166,7 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
           saveState(s);
         }, 250);
       };
-      ta.onblur = function() { ta.oninput(); };
+      ta.onblur = function() { ta.oninput(); var b = document.querySelector('.note-btn[data-key="' + ta.dataset.key + '"]'); if (!ta.value.trim()) { ta.hidden = true; if (b) { b.classList.remove('has'); b.setAttribute('aria-expanded', 'false'); } } else if (b) b.classList.add('has'); };
     });
   }
 

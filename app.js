@@ -802,6 +802,7 @@
       ${sm.n < 30 ? `<div class="note">Échantillon de ${sm.n} trade(s) : intervalles de confiance larges. Les sous-groupes de moins de 10 trades (lignes grisées) ne sont pas statistiquement fiables.</div>` : ''}
       ${disciplineHTML(sel, '')}
       ${consistencyHTML(sel)}
+      ${checklistStatsHTML(sel)}
       <h2>Fenêtre glissante : ${Math.min(win.n, +f.window || 20)} derniers trades de la sélection</h2>
       <div class="kpis">${cards(win)}</div>
       <h2>Courbes</h2>
@@ -1268,6 +1269,7 @@
     var pd = plansData();
     var plan = activePlan();
     var editing = renderTradingPlan._editing || false;
+    if (!editing) renderTradingPlan._draft = null;
     var clip = tpClipPeek();
     var planBar =
       '<div class="tp-bar">' +
@@ -1285,32 +1287,44 @@
       '</div>';
 
     if (editing) {
+      // Brouillon : les modifications ne touchent le plan qu'à l'enregistrement
+      var draft = renderTradingPlan._draft && renderTradingPlan._draft.id === plan.id ? renderTradingPlan._draft : (renderTradingPlan._draft = JSON.parse(JSON.stringify(plan)));
+      draft.sections = draft.sections || []; draft.notes = draft.notes || [];
+      var secOpts = function(si) { return draft.sections.map(function(s, k) { return '<option value="' + k + '"' + (k === si ? ' selected' : '') + '>' + esc(s.title || ('Section ' + (k + 1))) + '</option>'; }).join(''); };
       var sectionsHTML = '';
-      plan.sections.forEach(function(sec, si) {
-        sectionsHTML += '<fieldset><legend>' +
-          '<input type="text" class="tp-title" data-si="' + si + '" value="' + esc(sec.title) + '" style="font-weight:700;border:none;background:transparent;font-size:14px;width:300px">' +
-          ' <button class="btn sm danger tp-del-sec" data-si="' + si + '">\u00d7</button></legend>';
+      draft.sections.forEach(function(sec, si) {
+        sectionsHTML += '<fieldset class="tpe-sec" data-si="' + si + '"><legend class="tpe-legend">' +
+          '<input type="text" class="tp-title" data-si="' + si + '" value="' + esc(sec.title) + '" aria-label="Titre de la section">' +
+          '<span class="tpe-tools"><button class="btn sm tpe-sup" data-si="' + si + '" ' + (si === 0 ? 'disabled' : '') + ' title="Monter la section" aria-label="Monter la section">↑</button>' +
+          '<button class="btn sm tpe-sdown" data-si="' + si + '" ' + (si === draft.sections.length - 1 ? 'disabled' : '') + ' title="Descendre la section" aria-label="Descendre la section">↓</button>' +
+          '<button class="btn sm danger tp-del-sec" data-si="' + si + '" aria-label="Supprimer la section">×</button></span></legend>' +
+          '<div class="tpe-items" data-si="' + si + '">';
         sec.items.forEach(function(item, ii) {
-          sectionsHTML += '<div style="display:flex;gap:6px;margin-bottom:4px;align-items:center">' +
-            '<span class="muted">\u2022</span>' +
-            '<input type="text" class="tp-item" data-si="' + si + '" data-ii="' + ii + '" value="' + esc(item) + '" style="flex:1">' +
-            '<button class="btn sm danger tp-del-item" data-si="' + si + '" data-ii="' + ii + '">\u00d7</button></div>';
+          sectionsHTML += '<div class="tpe-row tpe-drag" data-si="' + si + '" data-ii="' + ii + '">' +
+            '<span class="tpe-handle" title="Glisser pour déplacer" aria-hidden="true">⠇</span>' +
+            '<input type="text" class="tp-item" data-si="' + si + '" data-ii="' + ii + '" value="' + esc(item) + '">' +
+            '<button class="btn sm tpe-up" data-si="' + si + '" data-ii="' + ii + '" ' + (ii === 0 ? 'disabled' : '') + ' aria-label="Monter">↑</button>' +
+            '<button class="btn sm tpe-down" data-si="' + si + '" data-ii="' + ii + '" ' + (ii === sec.items.length - 1 ? 'disabled' : '') + ' aria-label="Descendre">↓</button>' +
+            (draft.sections.length > 1 ? '<select class="tpe-move" data-si="' + si + '" data-ii="' + ii + '" aria-label="Déplacer vers une autre section"><option value="">Déplacer vers…</option>' + draft.sections.map(function(s, k) { return k === si ? '' : '<option value="' + k + '">' + esc(s.title || ('Section ' + (k + 1))) + '</option>'; }).join('') + '</select>' : '') +
+            '<button class="btn sm danger tp-del-item" data-si="' + si + '" data-ii="' + ii + '" aria-label="Supprimer">×</button></div>';
         });
-        sectionsHTML += '<button class="btn sm tp-add-item" data-si="' + si + '">+ Ajouter un point</button></fieldset>';
+        sectionsHTML += '</div><button class="btn sm tp-add-item" data-si="' + si + '">+ Ajouter un point</button></fieldset>';
       });
 
       var notesHTML = '';
-      plan.notes.forEach(function(note, ni) {
-        notesHTML += '<div style="display:flex;gap:6px;margin-bottom:4px;align-items:center">' +
-          '<span class="muted">\ud83d\udcdd</span>' +
-          '<input type="text" class="tp-note" data-ni="' + ni + '" value="' + esc(note) + '" style="flex:1">' +
-          '<button class="btn sm danger tp-del-note" data-ni="' + ni + '">\u00d7</button></div>';
+      draft.notes.forEach(function(note, ni) {
+        notesHTML += '<div class="tpe-row" data-ni="' + ni + '"><span class="muted">📝</span>' +
+          '<input type="text" class="tp-note" data-ni="' + ni + '" value="' + esc(note) + '">' +
+          '<button class="btn sm tpe-nup" data-ni="' + ni + '" ' + (ni === 0 ? 'disabled' : '') + ' aria-label="Monter">↑</button>' +
+          '<button class="btn sm tpe-ndown" data-ni="' + ni + '" ' + (ni === draft.notes.length - 1 ? 'disabled' : '') + ' aria-label="Descendre">↓</button>' +
+          '<button class="btn sm danger tp-del-note" data-ni="' + ni + '" aria-label="Supprimer">×</button></div>';
       });
 
       $('#main').innerHTML =
-        '<h1>\ud83d\udcdd Trading Plan <span class="muted small">(\u00e9dition)</span></h1>' + planBar +
-        '<div class="card" style="margin-bottom:12px"><div class="form"><label>Sous-titre (ex. London Checklist)<input id="tp-subtitle" value="' + esc(plan.subtitle || '') + '"></label><label class="wide">Images de setup (un lien TradingView ou image par ligne)<textarea id="tp-images">' + esc((plan.images || []).join('\n')) + '</textarea></label></div></div>' +
-        '<div class="card"><div class="form">' + sectionsHTML +
+        '<h1>📝 Trading Plan <span class="muted small">(édition)</span></h1>' + planBar +
+        '<div class="card" style="margin-bottom:12px"><div class="form"><label>Sous-titre (ex. London Checklist)<input id="tp-subtitle" value="' + esc(draft.subtitle || '') + '"></label><label class="wide">Images de setup (un lien TradingView ou image par ligne)<textarea id="tp-images">' + esc((draft.images || []).join('\n')) + '</textarea></label></div></div>' +
+        '<p class="muted small">Déplace un point avec ↑ ↓, avec « Déplacer vers… » pour changer de section, ou en le faisant glisser par la poignée ⠇ (ordinateur).</p>' +
+        '<div class="card"><div class="tpe-wrap">' + sectionsHTML +
         '<button class="btn" id="tp-add-sec">+ Ajouter une section</button>' +
         '</div></div>' +
         '<h2>Trading notes</h2>' +
@@ -1386,45 +1400,59 @@
       renderTradingPlan();
     };
 
+      // recopie ce qui est saisi dans le brouillon avant toute opération
+      var sync = function() {
+        document.querySelectorAll('.tp-title').forEach(function(el) { var s = draft.sections[+el.dataset.si]; if (s) s.title = el.value; });
+        document.querySelectorAll('.tp-item').forEach(function(el) { var s = draft.sections[+el.dataset.si]; if (s) s.items[+el.dataset.ii] = el.value; });
+        document.querySelectorAll('.tp-note').forEach(function(el) { draft.notes[+el.dataset.ni] = el.value; });
+        if ($('#tp-subtitle')) draft.subtitle = $('#tp-subtitle').value;
+        if ($('#tp-images')) draft.images = $('#tp-images').value.split('\n').map(function(x) { return x.trim(); }).filter(Boolean);
+      };
+      var redo = function(focusSel) { var y = window.scrollY; renderTradingPlan(); window.scrollTo(0, y); if (focusSel) { var f = document.querySelector(focusSel); if (f) f.focus(); } };
+      var moveItem = function(si, ii, tsi, tii) {
+        var it = draft.sections[si].items.splice(ii, 1)[0];
+        var dest = draft.sections[tsi].items; if (tii === undefined || tii > dest.length) tii = dest.length; dest.splice(tii, 0, it);
+        return tii;
+      };
       $('#tp-save').onclick = async function() {
-        var newPlan = { sections: [], notes: [] };
-        document.querySelectorAll('.tp-title').forEach(function(el) {
-          var si = +el.dataset.si;
-          if (!newPlan.sections[si]) newPlan.sections[si] = { title: '', items: [] };
-          newPlan.sections[si].title = el.value.trim();
-        });
-        document.querySelectorAll('.tp-item').forEach(function(el) {
-          var si = +el.dataset.si, v = el.value.trim();
-          if (v && newPlan.sections[si]) newPlan.sections[si].items.push(v);
-        });
-        newPlan.sections = newPlan.sections.filter(function(s) { return s && s.title; });
-        document.querySelectorAll('.tp-note').forEach(function(el) {
-          var v = el.value.trim(); if (v) newPlan.notes.push(v);
-        });
+        sync();
+        var newPlan = { sections: draft.sections.map(function(s) { return { title: String(s.title || '').trim(), items: s.items.map(function(x) { return String(x || '').trim(); }).filter(Boolean) }; }).filter(function(s) { return s.title; }),
+          notes: draft.notes.map(function(x) { return String(x || '').trim(); }).filter(Boolean) };
         newPlan.id = plan.id; newPlan.name = plan.name;
         ['reviews', 'color'].forEach(function(k) { if (plan[k] !== undefined) newPlan[k] = plan[k]; });
-        newPlan.subtitle = ($('#tp-subtitle') || {}).value ? $('#tp-subtitle').value.trim() : '';
-        newPlan.images = (($('#tp-images') || {}).value || '').split('\n').map(function(x) { return x.trim(); }).filter(Boolean);
+        newPlan.subtitle = String(draft.subtitle || '').trim();
+        newPlan.images = draft.images || [];
         var idx = pd.plans.map(function(p) { return p.id; }).indexOf(plan.id);
         if (idx >= 0) DB.tradingPlans[idx] = newPlan;
         DB.tradingPlan = newPlan; // keep the checklist and older code working
-        renderTradingPlan._editing = false;
-        if (await save('Plan \u00ab ' + newPlan.name + ' \u00bb enregistr\u00e9')) renderTradingPlan(); else renderTradingPlan();
+        renderTradingPlan._editing = false; renderTradingPlan._draft = null;
+        await save('Plan « ' + newPlan.name + ' » enregistré'); renderTradingPlan();
       };
-      $('#tp-cancel').onclick = function() { renderTradingPlan._editing = false; renderTradingPlan(); };
-      $('#tp-add-sec').onclick = function() { plan.sections.push({ title: 'Nouvelle section', items: [''] }); renderTradingPlan(); };
-      $('#tp-add-note').onclick = function() { plan.notes.push(''); renderTradingPlan(); };
-      document.querySelectorAll('.tp-add-item').forEach(function(btn) {
-        btn.onclick = function() { plan.sections[+btn.dataset.si].items.push(''); renderTradingPlan(); };
+      $('#tp-cancel').onclick = function() { renderTradingPlan._editing = false; renderTradingPlan._draft = null; renderTradingPlan(); };
+      $('#tp-add-sec').onclick = function() { sync(); draft.sections.push({ title: 'Nouvelle section', items: [''] }); redo('.tp-title[data-si="' + (draft.sections.length - 1) + '"]'); };
+      $('#tp-add-note').onclick = function() { sync(); draft.notes.push(''); redo('.tp-note[data-ni="' + (draft.notes.length - 1) + '"]'); };
+      document.querySelectorAll('.tp-add-item').forEach(function(btn) { btn.onclick = function() { sync(); var si = +btn.dataset.si; draft.sections[si].items.push(''); redo('.tp-item[data-si="' + si + '"][data-ii="' + (draft.sections[si].items.length - 1) + '"]'); }; });
+      document.querySelectorAll('.tp-del-sec').forEach(function(btn) { btn.onclick = function() { sync(); var s = draft.sections[+btn.dataset.si]; if (s.items.filter(Boolean).length && !confirm('Supprimer la section « ' + s.title + ' » et ses ' + s.items.filter(Boolean).length + ' point(s) ?')) return; draft.sections.splice(+btn.dataset.si, 1); redo(); }; });
+      document.querySelectorAll('.tp-del-item').forEach(function(btn) { btn.onclick = function() { sync(); draft.sections[+btn.dataset.si].items.splice(+btn.dataset.ii, 1); redo(); }; });
+      document.querySelectorAll('.tp-del-note').forEach(function(btn) { btn.onclick = function() { sync(); draft.notes.splice(+btn.dataset.ni, 1); redo(); }; });
+      document.querySelectorAll('.tpe-up, .tpe-down').forEach(function(btn) { btn.onclick = function() { sync(); var si = +btn.dataset.si, ii = +btn.dataset.ii, t = btn.classList.contains('tpe-up') ? ii - 1 : ii + 1; moveItem(si, ii, si, t); redo('.' + (btn.classList.contains('tpe-up') ? 'tpe-up' : 'tpe-down') + '[data-si="' + si + '"][data-ii="' + t + '"]'); }; });
+      document.querySelectorAll('.tpe-move').forEach(function(sel) { sel.onchange = function() { if (sel.value === '') return; sync(); var tsi = +sel.value, ni = moveItem(+sel.dataset.si, +sel.dataset.ii, tsi); redo('.tp-item[data-si="' + tsi + '"][data-ii="' + ni + '"]'); toast('Point déplacé vers « ' + (draft.sections[tsi].title || 'section') + ' »'); }; });
+      document.querySelectorAll('.tpe-sup, .tpe-sdown').forEach(function(btn) { btn.onclick = function() { sync(); var si = +btn.dataset.si, t = btn.classList.contains('tpe-sup') ? si - 1 : si + 1, s = draft.sections.splice(si, 1)[0]; draft.sections.splice(t, 0, s); redo(); }; });
+      document.querySelectorAll('.tpe-nup, .tpe-ndown').forEach(function(btn) { btn.onclick = function() { sync(); var ni = +btn.dataset.ni, t = btn.classList.contains('tpe-nup') ? ni - 1 : ni + 1, n = draft.notes.splice(ni, 1)[0]; draft.notes.splice(t, 0, n); redo(); }; });
+      // glisser-déposer (ordinateur) : déposer avant une ligne, ou à la fin d'une section
+      var dragSrc = null;
+      document.querySelectorAll('.tpe-row.tpe-drag').forEach(function(row) {
+        var h = row.querySelector('.tpe-handle');
+        h.addEventListener('mousedown', function() { row.draggable = true; });
+        h.addEventListener('mouseup', function() { row.draggable = false; });
+        row.addEventListener('dragstart', function(e) { if (!row.draggable) { e.preventDefault(); return; } dragSrc = { si: +row.dataset.si, ii: +row.dataset.ii }; row.classList.add('dragging'); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'x'); } catch (x) {} });
+        row.addEventListener('dragend', function() { row.draggable = false; row.classList.remove('dragging'); document.querySelectorAll('.drop-before').forEach(function(x) { x.classList.remove('drop-before'); }); });
+        row.addEventListener('dragover', function(e) { if (!dragSrc) return; e.preventDefault(); document.querySelectorAll('.drop-before').forEach(function(x) { x.classList.remove('drop-before'); }); row.classList.add('drop-before'); });
+        row.addEventListener('drop', function(e) { if (!dragSrc) return; e.preventDefault(); sync(); var tsi = +row.dataset.si, tii = +row.dataset.ii; if (dragSrc.si === tsi && dragSrc.ii < tii) tii--; moveItem(dragSrc.si, dragSrc.ii, tsi, tii); dragSrc = null; redo(); });
       });
-      document.querySelectorAll('.tp-del-sec').forEach(function(btn) {
-        btn.onclick = function() { plan.sections.splice(+btn.dataset.si, 1); renderTradingPlan(); };
-      });
-      document.querySelectorAll('.tp-del-item').forEach(function(btn) {
-        btn.onclick = function() { plan.sections[+btn.dataset.si].items.splice(+btn.dataset.ii, 1); renderTradingPlan(); };
-      });
-      document.querySelectorAll('.tp-del-note').forEach(function(btn) {
-        btn.onclick = function() { plan.notes.splice(+btn.dataset.ni, 1); renderTradingPlan(); };
+      document.querySelectorAll('.tpe-items').forEach(function(box) {
+        box.parentNode.addEventListener('dragover', function(e) { if (dragSrc && !e.target.closest('.tpe-row')) e.preventDefault(); });
+        box.parentNode.addEventListener('drop', function(e) { if (!dragSrc || e.target.closest('.tpe-row')) return; e.preventDefault(); sync(); moveItem(dragSrc.si, dragSrc.ii, +box.dataset.si); dragSrc = null; redo(); });
       });
       return;
     }
@@ -2256,8 +2284,8 @@
   }
   function v3ExecFieldset(t, isNew) {
     const snap = isNew ? pendingSnap() : null;
-    const lockInfo = !isNew && t.preLockedAt ? `<div class="lockbar" id="f-lockbar">🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}${t.preEdits && t.preEdits.length ? ` · modifiés après coup ${t.preEdits.length} fois` : ''} <button type="button" class="btn" id="f-unlock">Déverrouiller</button></div>` : '';
-    return `${snap ? `<label class="snap-box"><input type="checkbox" id="f-attachSnap" checked> 📌 Joindre la checklist figée à <b>${esc(snap.time)}</b> (${snap.done}/${snap.total} points cochés · ${esc(snap.planName || 'plan')})</label>` : ''}
+    const lockInfo = !isNew && t.preLockedAt ? `<div class="lockbar" id="f-lockbar">${lockLabel(t)}${t.preEdits && t.preEdits.length ? ` · modifiés après coup ${t.preEdits.length} fois` : ''} <button type="button" class="btn" id="f-unlock">Déverrouiller</button></div>` : '';
+    return `${snap ? `<label class="snap-box"><input type="checkbox" id="f-attachSnap" checked> 📌 Joindre la checklist figée à <b>${esc(snap.time)}</b> : ${snap.done}/${snap.total} points cochés (${pct(snapRate(snap))}) · ${esc(snap.planName || 'plan')}. L'heure de verrouillage sera ${esc(snap.time)}.</label>` : ''}
       ${lockInfo}
       <fieldset><legend>Exécution</legend><div class="row">
         <label>Setup<select id="f-setup">${closedOpts(lst('setups'), t.setup || '')}</select></label>
@@ -2325,7 +2353,7 @@
       if (changed.length) { o.preOriginal = t.preOriginal || Object.fromEntries(PRE_FIELDS.map(([k]) => [k, t[k] || ''])); o.preEdits = (t.preEdits || []).concat([{ at: now, fields: changed }]); }
     }
     const sc = document.getElementById('f-attachSnap');
-    if (sc && sc.checked) { const s = pendingSnap(); if (s) { o.checklistSnap = s; markSnapUsed(base.n); } }
+    if (sc && sc.checked) { const s = pendingSnap(); if (s) { o.checklistSnap = s; o.preLockedAt = s.at; o.preLockedSrc = 'checklist'; markSnapUsed(base.n); } }
     delete o.used;
     return o;
   }
@@ -2336,7 +2364,7 @@
     const kzTxt = t.killzoneAuto === 'time' ? (t.killzone === 'Yes' ? '✓ ' + (t.killzoneName || 'oui') : '✗ hors killzone') + ' (auto, heure)' : t.killzoneAuto === 'session' ? (t.killzone === 'Yes' ? '✓' : '✗') + ' (auto, session)' : t.killzone;
     let h = ficheBlock(t) + `<div class="details">${D('Heure d\'entrée', t.entryTime)}${D('Heure de sortie', t.exitTime)}${D('Killzone', kzTxt)}${D('Setup', t.setup)}${D('POI d\'exécution', t.execPoi)}${D('R prévu (TP initial)', isSet(t.plannedR) ? sgn(t.plannedR) + ' R' : '')}${D('Type de sortie', t.exitType)}${D('Taille du SL', isSet(t.slPips) ? t.slPips + ' pips' : '')}${D('MAE', isSet(t.maePips) ? t.maePips + ' pips' + (isSet(t.mae) ? ' (' + num(t.mae) + ' R)' : '') : isSet(t.mae) ? num(t.mae) : '')}${D('MFE', isSet(t.mfePips) ? t.mfePips + ' pips' + (isSet(t.mfe) ? ' (' + num(t.mfe) + ' R)' : '') : isSet(t.mfe) ? num(t.mfe) : '')}
       ${IS_BT ? '' : D('Émotion entrée', emo('Entry')) + D('Émotion pendant', emo('During')) + D('Émotion sortie', emo('Exit'))}${D('Erreurs (tags)', (t.mistakeTags || []).join(', '))}</div>`;
-    if (t.preLockedAt) h += `<div class="lockbar">🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}${t.preEdits && t.preEdits.length ? ` · <b>modifiés après coup</b> le ${esc(fmtStamp(t.preEdits[t.preEdits.length - 1].at))} (${esc(t.preEdits.map(e => e.fields.join(', ')).join(' ; '))}) — valeurs d'origine : ${esc(Object.entries(t.preOriginal || {}).map(([k, v]) => k + '=' + (v || '—')).join(', '))}` : ''}</div>`;
+    if (t.preLockedAt) h += `<div class="lockbar">${lockLabel(t)}${t.preEdits && t.preEdits.length ? ` · <b>modifiés après coup</b> le ${esc(fmtStamp(t.preEdits[t.preEdits.length - 1].at))} (${esc(t.preEdits.map(e => e.fields.join(', ')).join(' ; '))}) — valeurs d'origine : ${esc(Object.entries(t.preOriginal || {}).map(([k, v]) => k + '=' + (v || '—')).join(', '))}` : ''}</div>`;
     const s = t.checklistSnap;
     if (s) h += `<details class="snap-view"><summary>📌 Checklist figée à ${esc(s.time)} : ${s.done}/${s.total} (${esc(s.planName || '')})</summary><ul>${(s.items || []).map(i => `<li class="${i.done ? 'ok' : 'ko'}">${i.done ? '✓' : '✗'} ${esc(i.text)}${i.note ? `<div class="muted small">${esc(i.note)}</div>` : ''}</li>`).join('')}</ul></details>`;
     return h;
@@ -3681,6 +3709,42 @@
   }
 
   function initNewsAlerts() { if (!DB) return; registerSW(); loadNewsEvents().then(() => { updateStatusBar(); startNewsAlertLoop(); }).catch(() => {}); }
+
+  /* ================= V9 : checklist figée (heure, taux de remplissage, statistiques) ================= */
+  function snapRate(s) { return s && s.total ? s.done / s.total : null; }
+  function snapSections(s) {
+    const m = []; (s && s.items || []).forEach(i => { const k = i.section || 'Checklist'; let r = m.find(x => x.k === k); if (!r) { r = { k, d: 0, n: 0 }; m.push(r); } r.n++; if (i.done) r.d++; });
+    return m;
+  }
+  function lockLabel(t) {
+    const s = t.checklistSnap, r = snapRate(s);
+    const base = `🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}`;
+    if (!s) return base + ' · <span class="muted">sans checklist figée</span>';
+    const cls2 = r >= 1 ? 'pos' : r >= 0.8 ? '' : 'neg';
+    return base + ` · checklist <b class="${cls2}">${s.done}/${s.total} (${pct(r)})</b> <span class="muted small">${snapSections(s).map(x => esc(x.k) + ' ' + x.d + '/' + x.n).join(' · ')}</span>`;
+  }
+  function checklistStatsHTML(ts) {
+    const T = ts.filter(takenT).filter(t => S.filled(t.ret));
+    if (!T.length) return '';
+    const W = T.filter(t => t.checklistSnap && t.checklistSnap.total);
+    const head = `<h2>Checklist pré-entrée</h2>`;
+    if (!W.length) return head + `<div class="note">Aucun trade de la sélection n'a de checklist figée. Avant d'entrer, ouvre la checklist (bouton ✅), coche les points puis appuie sur « 📌 Figer (entrée) » : elle sera jointe au trade et ses statistiques apparaîtront ici (routine pré-market, chart process, critères d'entrée).</div>`;
+    const avg = meanOf(W.map(t => snapRate(t.checklistSnap)));
+    const secs = {}; W.forEach(t => snapSections(t.checklistSnap).forEach(x => { const r = secs[x.k] = secs[x.k] || { d: 0, n: 0, trades: 0, full: 0 }; r.d += x.d; r.n += x.n; r.trades++; if (x.d === x.n) r.full++; }));
+    const full = W.filter(t => snapRate(t.checklistSnap) >= 1), part = W.filter(t => snapRate(t.checklistSnap) < 1);
+    const line = (lbl, a) => { const r = rets(a); if (!r.length) return `<tr><td>${lbl}</td><td class="num">0</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>`; return `<tr class="${r.length < 5 ? 'low' : ''}"><td>${lbl}</td><td class="num">${r.length}</td><td class="num">${pct(r.filter(x => x > 0).length / r.length)}</td><td class="num ${cls(meanOf(r))}">${sgn(meanOf(r))}</td><td class="num ${cls(r.reduce((a, b) => a + b, 0))}">${sgn(r.reduce((a, b) => a + b, 0))}</td></tr>`; };
+    const pE = welchP(rets(full), rets(part));
+    return head + `<div class="card cl-stats">
+      <div class="kpis">
+        <div class="kpi"><div class="l">Trades avec checklist figée</div><div class="v">${W.length}/${T.length}</div><div class="s">${pct(W.length / T.length)} de la sélection</div></div>
+        <div class="kpi"><div class="l">Remplissage moyen</div><div class="v ${avg >= 1 ? 'pos' : avg < 0.8 ? 'neg' : ''}">${pct(avg)}</div><div class="s">${full.length} checklist(s) complète(s) à 100 %</div></div>
+      </div>
+      <div class="cl-secs">${Object.entries(secs).map(([k, r]) => { const v = r.n ? r.d / r.n : 0; return `<div class="cons-c"><div class="cons-ch"><span>${esc(k)}</span><b>${pct(v)}</b></div><div class="cons-bar"><span style="width:${Math.round(v * 100)}%;background:${v >= .95 ? 'var(--win)' : v >= .8 ? 'var(--be)' : 'var(--loss)'}"></span></div><div class="muted small">${r.d}/${r.n} points cochés · section complète sur ${r.full}/${r.trades} trades</div></div>`; }).join('')}</div>
+      <div class="twrap" style="max-height:none;margin-top:12px"><table><thead><tr><th>Checklist</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Espérance</th><th class="num">Net R</th></tr></thead><tbody>
+        ${line('Complète (100 %)', full)}${line('Incomplète', part)}${line('Non figée', T.filter(t => !(t.checklistSnap && t.checklistSnap.total)))}</tbody></table></div>
+      <p class="muted small">${full.length >= 5 && part.length >= 5 ? `Différence d'espérance complète / incomplète : p = ${fmtP(pE)} (Welch). ` : ''}Lignes grisées : moins de 5 trades, non concluant. Le taux mesure les points cochés au moment du gel, avant l'entrée.</p>
+    </div>`;
+  }
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }

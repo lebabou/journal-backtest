@@ -572,3 +572,18 @@ a.btn{text-decoration:none}
 @media (prefers-reduced-motion:reduce){.fp-track span{transition:none}}
 .fp-miss{max-height:92px;overflow:auto}
 .nc-modal .actions{flex-wrap:wrap;justify-content:flex-end}
+/* V9 */
+.cl-secs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px}
+.tpe-wrap{display:flex;flex-direction:column;gap:12px}
+.tpe-sec{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tpe-legend{display:flex;align-items:center;gap:6px;width:calc(100% - 4px);padding:0 4px}
+.tpe-legend .tp-title{flex:1;font-weight:700;font-size:14px;border:1px solid transparent;background:transparent;min-width:0}
+.tpe-legend .tp-title:focus{border-color:var(--line);background:var(--panel)}
+.tpe-tools{display:flex;gap:4px}
+.tpe-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;border-radius:8px}
+.tpe-row input[type=text]{flex:1;min-width:0}
+.tpe-row select.tpe-move{width:130px;font-size:12px}
+.tpe-handle{cursor:grab;color:var(--muted);font-size:16px;padding:0 2px;user-select:none}
+.tpe-row.dragging{opacity:.4}
+.tpe-row.drop-before{box-shadow:0 -3px 0 0 var(--accent)}
+@media(max-width:600px){.tpe-handle{display:none}.tpe-row{flex-wrap:wrap}.tpe-row input[type=text]{flex:1 1 100%}.tpe-row select.tpe-move{flex:1;width:auto}}
