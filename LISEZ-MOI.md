@@ -34,3 +34,7 @@ Aucun serveur, aucun tiers. L'application tourne entièrement dans votre navigat
 - 5 points : Journaling (coché si toutes les fiches du jour sont remplies à 80 % ou plus), revue de l'exécution de chaque trade (note 1–5 + commentaire), bon trade oui/non, une leçon, une amélioration pour demain (affichée le lendemain dans la pastille 🔧).
 - Rappel 30 mn après la fin de ta dernière killzone (jours de semaine), désactivable dans la routine.
 - Dashboard → Post-market : taux de routine, qualité d'exécution, tableau bons trades / trades gagnants. Revues : leçons de la période.
+
+## Checklist figée synchronisée (V13)
+- « 📌 Figer (entrée) » envoie la checklist sur Google Drive (fichier checklist-frozen-<journal>.json, à côté du journal). Le journal la propose ensuite sur n'importe quel appareil connecté au même compte Google.
+- Sous le bouton, la page indique « Envoyée sur Google Drive » ou, sans connexion Google (ex. navigation privée), « Non envoyée » : la checklist reste alors sur l'appareil et part sur Drive à la prochaine ouverture du journal dans ce navigateur.

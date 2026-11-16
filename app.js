@@ -4311,6 +4311,37 @@
   window.addEventListener('focus', _snapRecheck);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) _snapRecheck(); });
 
+  /* ================= V13 : checklist figée synchronisée par Google Drive ================= */
+  const SNAP_FILE = 'checklist-frozen-' + APP_ID + '.json';
+  let REMOTE_SNAPS = [], _snapSyncAt = 0, _snapSyncing = null;
+  const localSnap = () => { try { return JSON.parse(localStorage.getItem(SNAP_KEY)); } catch (e) { return null; } };
+  const snapAttached = s => !!(DB && DB.trades && DB.trades.some(t => t.checklistSnap && t.checklistSnap.at === s.at));
+  function mergeSnaps(a, b) { const m = {}; a.concat(b).forEach(s => { if (s && s.at) { const c = Object.assign({}, s); delete c.used; m[s.at] = c; } }); return Object.values(m).sort((x, y) => x.at < y.at ? -1 : 1).slice(-20); }
+  function syncSnaps(force) {
+    if (!window.Drive || !Drive.canTry || !Drive.canTry()) return Promise.resolve();
+    if (!force && _snapSyncing && Date.now() - _snapSyncAt < 15000) return _snapSyncing;
+    _snapSyncAt = Date.now();
+    _snapSyncing = Drive.readNamed(SNAP_FILE).then(r => {
+      const remote = (r && Array.isArray(r.snaps)) ? r.snaps : []; REMOTE_SNAPS = remote;
+      const loc = localSnap();
+      if (loc && loc.at && !remote.some(s => s.at === loc.at)) { const merged = mergeSnaps(remote, [loc]); return Drive.writeNamed(SNAP_FILE, { snaps: merged }).then(() => { REMOTE_SNAPS = merged; }).catch(() => {}); }
+    }).catch(() => {});
+    return _snapSyncing;
+  }
+  pendingSnap = function () {
+    const today = todayISO(), loc = localSnap();
+    const c = mergeSnaps(REMOTE_SNAPS, loc ? [loc] : []).filter(s => s.date === today && !snapAttached(s));
+    return c.length ? c[c.length - 1] : null;
+  };
+  { const _et4 = editTrade; editTrade = function (n) { _et4(n); syncSnaps(true).then(_snapRecheck); }; }
+  { const _ot3 = openTrade; openTrade = function (n) {
+      const before = (pendingSnap() || {}).at; _ot3(n);
+      syncSnaps().then(() => { const after = (pendingSnap() || {}).at; if (after && after !== before && document.querySelector('#modal #m-edit') && !document.getElementById('snap-join') && (DB.trades.find(x => x.n === n) || {}).checklistSnap === undefined) openTrade(n); });
+    }; }
+  { const _r2 = render; render = function () { _r2(); setTimeout(() => syncSnaps(), 0); }; }
+  window.addEventListener('focus', () => syncSnaps().then(_snapRecheck));
+  setInterval(() => { if (!document.hidden) syncSnaps(); }, 60000);
+
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   function toCSV() {

@@ -37,7 +37,7 @@
 
   // The address Google sends the user back to: exactly the app's own page (must be an authorised redirect URI)
   function appUrl() {
-    var p = location.pathname.replace(/index\.html$/, '');
+    var p = location.pathname.replace(/[^\/]*$/, '');   // dossier de l'appli (index.html, checklist.html… renvoient tous à l'adresse autorisée)
     if (!/\/$/.test(p)) p += '/';
     return location.origin + p;
   }
@@ -284,6 +284,33 @@
     }).catch(function(e) { if (cached) return { db: cached, source: 'cache' }; throw e; });
   }
 
+  /* Petits fichiers annexes (ex. checklist figée), lus/écrits par nom, sans toucher au journal */
+  var namedIds = {};
+  function canTry() { return tokenValid() || sessionLive || wasConnected(); }
+  function findNamed(name) {
+    if (namedIds[name]) return Promise.resolve(namedIds[name]);
+    var q = encodeURIComponent("name='" + name + "' and trashed=false");
+    return driveReq(DRIVE_API + '/files?q=' + q + '&spaces=drive&fields=files(id,modifiedTime)').then(jsonOk).then(function(d) {
+      var id = d.files && d.files.length ? d.files[0].id : null; if (id) namedIds[name] = id; return id;
+    });
+  }
+  function readNamed(name) {
+    if (!canTry()) return Promise.reject(new Error('AUTH_REQUIRED'));
+    return findNamed(name).then(function(id) { return id ? driveReq(DRIVE_API + '/files/' + id + '?alt=media').then(jsonOk) : null; });
+  }
+  function writeNamed(name, content) {
+    if (!canTry()) return Promise.reject(new Error('AUTH_REQUIRED'));
+    var body = JSON.stringify(content);
+    return findNamed(name).then(function(id) {
+      if (id) return driveReq(UPLOAD_API + '/files/' + id + '?uploadType=media', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: body }).then(jsonOk);
+      var boundary = '---journalboundary';
+      var mp = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ name: name, mimeType: 'application/json' }) +
+        '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' + body + '\r\n--' + boundary + '--';
+      return driveReq(UPLOAD_API + '/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body: mp })
+        .then(jsonOk).then(function(r) { namedIds[name] = r.id; return r; });
+    });
+  }
+
   function save(db) {
     // Always keep a local copy first, flagged as "not on Drive yet" until the upload succeeds
     try { localStorage.setItem(DB_CACHE_KEY, JSON.stringify(db)); } catch (e) {}
@@ -316,6 +343,6 @@
 
   root.Drive = {
     init: init, signIn: signIn, signOut: signOut, isSignedIn: isSignedIn,
-    load: load, save: save, peek: peek, getCached: getCached, isDirty: isDirty, takeReturnError: takeReturnError
+    load: load, save: save, peek: peek, readNamed: readNamed, writeNamed: writeNamed, canTry: canTry, getCached: getCached, isDirty: isDirty, takeReturnError: takeReturnError
   };
 })(window);

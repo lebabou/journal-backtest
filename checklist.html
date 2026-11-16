@@ -32,6 +32,7 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
 .btn.red{background:var(--red);color:#fff;border-color:var(--red)}
 .progress{height:4px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden}
 .progress-fill{height:100%;background:var(--green);transition:width .3s}
+.sync{font-size:12.5px;margin:-2px 0 8px;color:var(--muted)}.sync.ok{color:var(--win)}.sync.warn{color:var(--be)}.sync button{margin-left:6px;font:inherit;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer}
 .frozen{background:rgba(59,130,246,.12);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:8px}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 .item-wrap{border-bottom:1px solid var(--line)}
@@ -58,9 +59,11 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
   <button class="btn" id="back" onclick="window.close()">Close</button>
 </div>
 <div class="frozen" id="frozen" hidden></div>
+<div class="sync" id="sync" hidden></div>
 <div class="progress"><div class="progress-fill" id="pbar"></div></div>
 <div id="app"><div class="empty">Loading trading plan...</div></div>
 
+<script src="drive.js"></script>
 <script>
 (function() {
   'use strict';
@@ -86,10 +89,14 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
     }
     return null;
   }
+  var HAS_DRIVE = !!(window.Drive && Drive.readNamed);
+  if (HAS_DRIVE) { try { Drive.init({ clientId: '581487785097-euvn52u9tlbduie8mpsmmf6sanbcfsk2.apps.googleusercontent.com', fileName: APP + '.json', onAuthChange: function() {} }); } catch (e) { HAS_DRIVE = false; } }
   function loadPlanAsync(cb) {
     var p = loadPlan();
     if (p) return cb(p);
-    fetch('journal.json').then(function(r) { return r.json(); }).then(function(db) { cb(activeOf(db)); }).catch(function() { cb(null); });
+    if (HAS_DRIVE && Drive.canTry()) { Drive.readNamed(APP + '.json').then(function(db) { var q = activeOf(db); if (q) cb(q); else fallback(); }).catch(fallback); return; }
+    fallback();
+    function fallback() { fetch('journal.json').then(function(r) { return r.json(); }).then(function(db) { cb(activeOf(db)); }).catch(function() { cb(null); }); }
   }
 
   // Ticks and notes are kept per journal AND per plan, so two plans (or two journals) never mix
@@ -192,16 +199,35 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
   // Freeze: a timestamped copy of ticks + notes, attached to the next trade saved in the journal
   var SNAP_KEY = 'checklist_frozen_v1:' + APP;
   function pad(n) { return ('0' + n).slice(-2); }
+  var SNAP_FILE = 'checklist-frozen-' + APP + '.json', REMOTE = [], JTRADES = null;
+  function setSync(cls, html) { var el = document.getElementById('sync'); el.hidden = false; el.className = 'sync ' + cls; el.innerHTML = html; var b = el.querySelector('button'); if (b) b.onclick = function() { Drive.signIn(); }; }
+  function mergeSnaps(a, b) { var m = {}; a.concat(b).forEach(function(s) { if (s && s.at) { var c = JSON.parse(JSON.stringify(s)); delete c.used; m[s.at] = c; } }); return Object.keys(m).map(function(k) { return m[k]; }).sort(function(x, y) { return x.at < y.at ? -1 : 1; }).slice(-20); }
+  function pushSnap(snap) {
+    if (!HAS_DRIVE || !Drive.canTry()) { setSync('warn', '\u26a0\ufe0f Non envoy\u00e9e sur Google Drive (pas de connexion Google dans ce navigateur) : elle reste sur cet appareil jusqu\u2019\u00e0 l\u2019ouverture du journal ici. <button type="button">Se connecter</button>'); return; }
+    setSync('', '\u2601\ufe0f Envoi sur Google Drive\u2026');
+    Drive.readNamed(SNAP_FILE).then(function(r) {
+      var merged = mergeSnaps((r && r.snaps) || [], [snap]); REMOTE = merged;
+      return Drive.writeNamed(SNAP_FILE, { snaps: merged });
+    }).then(function() { setSync('ok', '\u2601\ufe0f Envoy\u00e9e sur Google Drive : disponible dans le journal sur tous tes appareils.'); })
+      .catch(function() { setSync('warn', '\u26a0\ufe0f Envoi sur Google Drive impossible (connexion Google expir\u00e9e ou hors ligne) : elle reste sur cet appareil et sera envoy\u00e9e \u00e0 la prochaine ouverture du journal ici. <button type="button">Se connecter</button>'); });
+  }
+  function pullRemote() {
+    if (!HAS_DRIVE || !Drive.canTry()) return;
+    Drive.readNamed(APP + '.json').then(function(db) { if (db && db.trades) JTRADES = db.trades; showFrozen(); }).catch(function() {});
+    Drive.readNamed(SNAP_FILE).then(function(r) { REMOTE = (r && r.snaps) || []; showFrozen(); var loc = null; try { loc = JSON.parse(localStorage.getItem(SNAP_KEY)); } catch (e) {} if (loc && loc.at && !REMOTE.some(function(x) { return x.at === loc.at; })) pushSnap(loc); }).catch(function() {});
+  }
   function showFrozen() {
     var el = document.getElementById('frozen'), s = null;
     try { s = JSON.parse(localStorage.getItem(SNAP_KEY)); } catch (e) {}
+    var latest = mergeSnaps(REMOTE, s ? [s] : []).pop(); if (latest && (!s || latest.at > s.at)) s = latest;
     var d = new Date(), today = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     if (s && s.date === today) {
       el.hidden = false;
-      var attached = false;
-      if (s.used) { try { var dbc = JSON.parse(localStorage.getItem('drive_cache_' + APP + '.json')); var db = dbc && (dbc.db || dbc.data || dbc); attached = !!(db && db.trades && db.trades.some(function(t) { return t.checklistSnap && t.checklistSnap.at === s.at; })); } catch (e) { attached = true; } }
-      if (s.used && !attached) { el.textContent = '\u26a0\ufe0f Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') pas encore jointe : enregistrement interrompu. Ouvre le trade dans le journal et appuie sur \u00ab Joindre \u00e0 ce trade \u00bb.'; return; }
-      el.textContent = s.used ? '\u2705 Checklist fig\u00e9e \u00e0 ' + s.time + ' jointe au trade #' + s.used + '.' : '\ud83d\udccc Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') : elle sera jointe au prochain trade enregistr\u00e9 aujourd\u2019hui.';
+      var tr = null;
+      try { var db = JTRADES ? { trades: JTRADES } : JSON.parse(localStorage.getItem('drive_cache_' + APP + '.json')); tr = db && db.trades ? db.trades.filter(function(t) { return t.checklistSnap && t.checklistSnap.at === s.at; })[0] : null; } catch (e) {}
+      if (tr) el.textContent = '\u2705 Checklist fig\u00e9e \u00e0 ' + s.time + ' jointe au trade #' + tr.n + '.';
+      else if (s.used) el.textContent = '\u26a0\ufe0f Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') pas encore jointe : enregistrement interrompu. Ouvre le trade dans le journal et appuie sur \u00ab Joindre \u00e0 ce trade \u00bb.';
+      else el.textContent = '\ud83d\udccc Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') : elle sera jointe au prochain trade enregistr\u00e9 aujourd\u2019hui.';
     } else el.hidden = true;
   }
   document.getElementById('freeze').onclick = function() {
@@ -218,9 +244,9 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
     var snap = { at: d.toISOString(), date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()), time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
       planId: plan.id || '', planName: plan.name || '', done: done, total: items.length, items: items };
     try { localStorage.setItem(SNAP_KEY, JSON.stringify(snap)); } catch (e) {}
-    showFrozen();
+    showFrozen(); pushSnap(snap);
   };
-  showFrozen();
+  showFrozen(); setTimeout(pullRemote, 900);
   loadPlanAsync(function(p) { plan = p; render(); });
 })();
 </script>
