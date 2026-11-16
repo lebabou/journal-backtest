@@ -360,7 +360,7 @@
   var _newsTimers = [];
   var _newsAlertMsg = '';
 
-  function initNewsAlerts() {
+  function initNewsAlertsLegacy() {
     if (!DB) return;
     // Clear existing timers
     _newsTimers.forEach(function(t) { clearTimeout(t); });
@@ -1025,7 +1025,7 @@
       ${dl('dl-inst', uniq('instruments'))}${dl('dl-sess', uniq('sessions'))}${dl('dl-entry', uniq('entries'))}${dl('dl-aentry', uniq('aggEntries'))}${dl('dl-sl', uniq('sl'))}${dl('dl-tp', uniq('tp'))}${dl('dl-mgmt', mgmt)}
       <div class="actions"><button class="btn" id="f-cancel">Annuler</button><button class="btn primary" id="f-save">Enregistrer</button></div>`);
     $('#f-cancel').onclick = () => isNew ? closeModal() : openTrade(t.n);
-    grBrokenWire(); v3Wire(t, isNew);
+    grBrokenWire(); v3Wire(t, isNew); formProgressInit(t);
     $('#f-save').onclick = async () => {
       const v = id => { const el = $('#f-' + id); return el ? el.value.trim() : (t[id] === null || t[id] === undefined ? '' : String(t[id])); };
       const numOrNull = id => { const x = v(id); return x === '' ? null : +x; };
@@ -3041,6 +3041,7 @@
       <div class="nc-head"><h1>Calendrier économique</h1>
         <div class="nc-tools">
           <label class="nc-tz">Fuseau<select id="nc-tz">${[...new Set([tz].concat(TZ_LIST))].map(z => `<option value="${esc(z)}"${z === tz ? ' selected' : ''}>${esc(z.replace('_', ' '))} (${tzParts(Date.now(), z).time})</option>`).join('')}</select></label>
+          <button class="btn" id="nc-alerts">${newsAlertCfg().enabled ? '🔔 Alertes : ' + newsAlertCfg().leads.slice().sort((a, b) => b - a).map(m => m === 60 ? '1 h' : m + ' mn').join(', ') : '🔕 Alertes'}</button>
           <button class="btn" id="nc-block">${b.enabled ? '🔒 Blocage news : ' + b.window + ' mn' : '🔓 Blocage news'}</button>
           <button class="btn" id="nc-refresh">Actualiser</button>
         </div></div>
@@ -3071,7 +3072,7 @@
       </div>
       <p class="muted small">${newsDiag()}</p>
       <p class="muted small">Sources : ${esc(getMeta().src || 'biquote.io, ForexFactory')} (environ 90 jours avant et après aujourd'hui)${getMeta().at ? ' · mis à jour ' + relTime(getMeta().at) : ''}. Heures affichées dans le fuseau ${esc(tz)}. <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener">Ouvrir investing.com</a></p>
-      ${NUI.settings ? newsSettingsHTML() : ''}
+      ${NUI.settings ? newsSettingsHTML() : ''}${NUI.alerts ? newsAlertsHTML() : ''}
     </div>`;
     const go = () => renderNews();
     nc.querySelectorAll('[data-day]').forEach(x => x.onclick = () => { NUI.day = x.dataset.day; NUI.sel = ''; if (NUI.day.slice(0, 7) !== NUI.month) NUI.month = NUI.day.slice(0, 7); go(); });
@@ -3087,6 +3088,7 @@
     $('#nc-q').onchange = e => { NUI.q = e.target.value.trim(); go(); };
     $('#nc-refresh').onclick = () => { $('#nc-refresh').disabled = true; loadNewsEvents(true, NUI.month).then(() => { if (view === 'news') go(); }); };
     $('#nc-block').onclick = () => { NUI.settings = true; go(); };
+    $('#nc-alerts').onclick = () => { NUI.alerts = true; go(); };
     if (sel && $('#nc-close')) $('#nc-close').onclick = () => { NUI.sel = ''; go(); };
     if ($('#nc-raw')) $('#nc-raw').onclick = () => {
       const dayRaw = NEWS_EVENTS.filter(e => ['2026-11-06', '2026-11-13', NUI.day].indexOf(tzParts(e.ts, 'UTC').date) >= 0 && (e.country === 'USD' || e.cc === 'US')).slice(0, 60);
@@ -3096,6 +3098,7 @@
     if (sel && $('#nc-ov')) $('#nc-ov').onchange = e => { const c2 = newsCfg(); c2.impOverride = c2.impOverride || {}; if (e.target.value) c2.impOverride[ovKey(sel)] = e.target.value; else delete c2.impOverride[ovKey(sel)]; applyImpacts(); saveNewsSoon('Impact enregistré'); go(); };
     if ($('#nc-major')) $('#nc-major').onchange = e => { newsCfg().majorHigh = e.target.checked; applyImpacts(); saveNewsSoon(); go(); };
     if (NUI.settings) wireNewsSettings();
+    if (NUI.alerts) wireNewsAlerts();
     const meta = getMeta();
     const recentFail = NEWS_FAIL[NUI.month] && Date.now() - NEWS_FAIL[NUI.month] < 2 * 60e3;
     if (!NEWS_LOADING && !recentFail && (!NEWS_EVENTS.length || !(meta['bq:' + NUI.month] && Date.now() - meta['bq:' + NUI.month] < 12 * 3600e3))) loadNewsEvents(false, NUI.month).then(() => { if (view === 'news') go(); });
@@ -3528,6 +3531,156 @@
   const CAT_KEY = 'dash_cat_open_v1';
   const catOpen = () => { try { return localStorage.getItem(CAT_KEY) !== '0'; } catch (e) { return true; } };
   document.addEventListener('toggle', e => { const t = e.target; if (t && t.classList && t.classList.contains('cat-fold')) { try { localStorage.setItem(CAT_KEY, t.open ? '1' : '0'); } catch (x) {} } }, true);
+
+  /* ================= V8 : progression du formulaire en direct + alertes news réglables ================= */
+  /* ---- barre de remplissage du formulaire ---- */
+  function formDraft(t) {
+    const d = Object.assign({}, t), m = document.getElementById('modal'); if (!m) return d;
+    m.querySelectorAll('[id^="f-"]').forEach(el => {
+      if (!('value' in el) || el.type === 'checkbox' || el.tagName === 'BUTTON') return;
+      const k = el.id.slice(2); if (k.startsWith('s-')) return;
+      d[k] = String(el.value || '').trim();
+    });
+    d.screens = {}; SLOTS.forEach(([k]) => { const el = document.getElementById('f-s-' + k); d.screens[k] = el ? el.value.split('\n').map(x => x.trim()).filter(Boolean) : ((t.screens || {})[k] || []); });
+    return d;
+  }
+  function formProgressInit(t) {
+    const m = document.getElementById('modal'); if (!m) return;
+    if (m._fpOff) m._fpOff();
+    if (document.getElementById('fp-bar')) return;
+    const head = m.querySelector('h2'); const bar = document.createElement('div'); bar.id = 'fp-bar'; bar.className = 'fp-bar';
+    bar.innerHTML = '<div class="fp-top"><b id="fp-pct">0 %</b><span class="fp-lbl">fiche remplie</span><button type="button" class="fp-more" id="fp-more" aria-expanded="false">Voir ce qui manque</button></div><div class="fp-track"><span id="fp-fill"></span></div><div class="fp-miss" id="fp-miss" hidden></div>';
+    if (head && head.nextSibling) head.parentNode.insertBefore(bar, head.nextSibling); else m.insertBefore(bar, m.firstChild);
+    const idOf = k => k === 'screens' ? 'f-s-' + SLOTS[0][0] : 'f-' + k;
+    const upd = () => {
+      if (!document.getElementById('fp-bar')) return;
+      const c = completeness(formDraft(t)), keys = COMPLETE_FIELDS();
+      const missKeys = keys.filter(([, l]) => c.miss.indexOf(l) >= 0);
+      $('#fp-pct').textContent = c.pct + ' %';
+      const fill = $('#fp-fill'); fill.style.width = c.pct + '%'; fill.className = c.pct >= 100 ? 'ok' : c.pct >= 80 ? 'mid' : 'low';
+      $('#fp-more').hidden = !missKeys.length;
+      $('#fp-miss').innerHTML = missKeys.length ? missKeys.map(([k, l]) => `<button type="button" data-goto="${idOf(k)}">${esc(l)}</button>`).join('') : '';
+      if (!missKeys.length) $('#fp-miss').hidden = true;
+      $('#fp-miss').querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { const el = document.getElementById(b.dataset.goto); if (el) { if (el.disabled) return toast('Champ verrouillé (critère pré-entrée figé)'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => el.focus(), 300); } });
+    };
+    $('#fp-more').onclick = () => { const mm = $('#fp-miss'); mm.hidden = !mm.hidden; $('#fp-more').textContent = mm.hidden ? 'Voir ce qui manque' : 'Masquer'; $('#fp-more').setAttribute('aria-expanded', String(!mm.hidden)); };
+    let raf = 0; const sched = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(upd); };
+    const onClick = e => { if (e.target.closest('.yn, .ms, button')) setTimeout(sched, 0); };
+    m.addEventListener('input', sched); m.addEventListener('change', sched); m.addEventListener('click', onClick);
+    m._fpOff = () => { m.removeEventListener('input', sched); m.removeEventListener('change', sched); m.removeEventListener('click', onClick); m._fpOff = null; };
+    upd();
+  }
+
+  /* ---- alertes news réglables ---- */
+  function newsAlertCfg() {
+    const d = { enabled: true, leads: [10], currencies: ['USD', 'EUR', 'GBP'], impacts: ['High'] };
+    if (!DB.newsAlerts) DB.newsAlerts = {};
+    Object.keys(d).forEach(k => { if (DB.newsAlerts[k] === undefined) DB.newsAlerts[k] = Array.isArray(d[k]) ? d[k].slice() : d[k]; });
+    return DB.newsAlerts;
+  }
+  const FIRED_KEY = 'news_alert_fired_v1';
+  let _naTimer = null;
+  function alertEvents() {
+    const a = newsAlertCfg();
+    return NEWS_EVENTS.filter(e => a.currencies.indexOf(e.country) >= 0 && a.impacts.some(i => i.toLowerCase() === String(e.impact).toLowerCase()));
+  }
+  function checkNewsAlerts() {
+    const a = newsAlertCfg(); if (!a.enabled || !NEWS_EVENTS.length) return;
+    let fired = {}; try { fired = JSON.parse(localStorage.getItem(FIRED_KEY)) || {}; } catch (e) {}
+    const now = Date.now(), tz = newsCfg().tz; let changed = false;
+    alertEvents().forEach(e => {
+      if (e.ts < now - 60e3 || e.ts > now + 3 * 3600e3) return;
+      a.leads.slice().sort((x, y) => x - y).some(L => {
+        const at = e.ts - L * 60e3, key = evKey(e) + '|' + L;
+        // fenêtre de tir : de l'heure d'alerte jusqu'à 2 mn après (rattrape un onglet mis en veille)
+        if (now >= at && now < at + 2 * 60e3 && !fired[key]) {
+          fired[key] = now; changed = true;
+          const mins = Math.max(0, Math.round((e.ts - now) / 60000));
+          const title = `🚨 ${e.country} ${e.title} dans ${mins} mn`;
+          const body = `${tzParts(e.ts, tz).time} · impact ${(IMPACTS.find(x => x[0].toLowerCase() === String(e.impact).toLowerCase()) || [0, e.impact])[1].toLowerCase()}` + (e.forecast ? ` · prévision ${e.forecast}` : '') + (e.previous ? ` · précédent ${e.previous}` : '');
+          notifyNews(title, body, key);
+          toast(title, 12000);
+          setNewsPill(`🚨 ${e.country} ${e.title} dans ${mins} mn`, `${e.title} (${e.country}) à ${tzParts(e.ts, tz).time}`, e.ts);
+          return true;
+        }
+        return false;
+      });
+    });
+    if (changed) { Object.keys(fired).forEach(k => { if (now - fired[k] > 2 * 864e5) delete fired[k]; }); try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) {} }
+  }
+  function notifyNews(title, body, tag) {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const opt = { body, tag, renotify: true, requireInteraction: true, vibrate: [300, 120, 300, 120, 300], data: { url: location.href.split('#')[0] + '#/news' } };
+      const show = () => { try { new Notification(title, opt); } catch (e) { /* Android : seul le service worker peut notifier */ } };
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) navigator.serviceWorker.getRegistration().then(reg => reg ? reg.showNotification(title, opt) : show()).catch(show);
+      else show();
+    } catch (e) {}
+  }
+  function setNewsPill(msg, tip, ts) {
+    _newsAlertMsg = msg;
+    const bar = document.getElementById('gr-status-bar'); if (!bar) return;
+    let pill = bar.querySelector('#news-alert-pill');
+    if (!pill) { pill = document.createElement('a'); pill.id = 'news-alert-pill'; pill.className = 'gr-pill gr-pill-news'; pill.href = '#/news'; bar.appendChild(pill); }
+    pill.textContent = msg; pill.title = tip;
+    clearTimeout(setNewsPill.t); setNewsPill.t = setTimeout(() => { const pl = document.getElementById('news-alert-pill'); if (pl) pl.remove(); _newsAlertMsg = ''; }, Math.max(60e3, ts - Date.now() + 5 * 60e3));
+  }
+  function startNewsAlertLoop() { clearInterval(_naTimer); _naTimer = setInterval(() => { checkNewsAlerts(); }, 20000); checkNewsAlerts(); }
+  function registerSW() { try { if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) {} }
+  function nextAlertsList(n) {
+    const a = newsAlertCfg(), now = Date.now(), tz = newsCfg().tz, out = [];
+    alertEvents().filter(e => e.ts > now).slice(0, 60).forEach(e => a.leads.forEach(L => { const at = e.ts - L * 60e3; if (at > now) out.push({ at, e, L }); }));
+    return out.sort((x, y) => x.at - y.at).slice(0, n || 6).map(x => `${fmtDayLong(tzParts(x.at, tz).date)} ${tzParts(x.at, tz).time} → ${x.e.country} ${x.e.title} (${x.L} mn avant)`);
+  }
+  function icsExport() {
+    const a = newsAlertCfg(), now = Date.now(), evs = alertEvents().filter(e => e.ts > now && e.ts < now + 15 * 864e5);
+    if (!evs.length) return toast('Aucune news correspondant à tes réglages dans les 15 prochains jours.');
+    const z = ts => new Date(ts).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const escI = s => String(s).replace(/[\;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Journal Trading//News//FR', 'CALSCALE:GREGORIAN'];
+    evs.forEach(e => {
+      lines.push('BEGIN:VEVENT', 'UID:' + encodeURIComponent(evKey(e)) + '@journal-trading', 'DTSTAMP:' + z(now), 'DTSTART:' + z(e.ts), 'DTEND:' + z(e.ts + 15 * 60e3),
+        'SUMMARY:' + escI(`🚨 ${e.country} ${e.title}`), 'DESCRIPTION:' + escI(`Impact ${e.impact}` + (e.forecast ? ` · prévision ${e.forecast}` : '') + (e.previous ? ` · précédent ${e.previous}` : '')));
+      a.leads.forEach(L => lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + escI(`${e.country} ${e.title} dans ${L} mn`), 'TRIGGER:-PT' + L + 'M', 'END:VALARM'));
+      lines.push('END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    download('alertes-news.ics', lines.join('\r\n'), 'text/calendar');
+    toast(`${evs.length} news exportées avec ${a.leads.length} rappel(s) chacune. Ouvre le fichier pour l'ajouter à ton agenda.`, 9000);
+  }
+  function newsAlertsHTML() {
+    const a = newsAlertCfg(), perm = !('Notification' in window) ? 'unsupported' : Notification.permission;
+    const nx = nextAlertsList(5);
+    return `<div class="nc-overlay"><div class="nc-modal card" role="dialog" aria-label="Alertes news">
+      <div class="nc-dethead"><h3>🔔 Alertes avant les news</h3><button class="btn sm" id="na-x" aria-label="Fermer">×</button></div>
+      <label class="nc-switch"><input type="checkbox" id="na-on" ${a.enabled ? 'checked' : ''}> <span><b>Activer les alertes</b><br><span class="muted small">Notification + message + pastille, pour chaque news choisie.</span></span></label>
+      <div class="ns-sec"><div class="ms-title">Me prévenir (plusieurs choix possibles)</div><div class="nc-seg">${[60, 30, 15, 10, 5, 1].map(m => `<button class="${a.leads.indexOf(m) >= 0 ? 'on' : ''}" data-lead="${m}">${m === 60 ? '1 h' : m + ' mn'} avant</button>`).join('')}</div></div>
+      <div class="ns-sec"><div class="ms-title">Devises</div><div class="nc-chips">${ALL_CCY.map(x => `<button class="nc-chip ${a.currencies.indexOf(x) >= 0 ? 'on' : ''}" data-accy="${x}">${CCY_FLAG[x]} ${x}</button>`).join('')}</div></div>
+      <div class="ns-sec"><div class="ms-title">Impact</div><div class="nc-chips">${IMPACTS.slice(0, 2).map(([k, l, cl]) => `<button class="nc-chip ${a.impacts.indexOf(k) >= 0 ? 'on' : ''}" data-aimp="${k}"><i class="dot ${cl}"></i> ${l}</button>`).join('')}</div></div>
+      <div class="note small">${perm === 'granted' ? '✅ Notifications autorisées sur cet appareil.' : perm === 'denied' ? '⛔ Notifications bloquées : autorise-les dans les réglages du site (cadenas à gauche de l\'adresse), puis recharge la page.' : perm === 'unsupported' ? 'Ce navigateur ne gère pas les notifications : seuls le message et la pastille s\'afficheront.' : '<button class="btn sm" id="na-perm">Autoriser les notifications</button>'}
+        <br>Les notifications arrivent tant que le journal est ouvert (même en arrière-plan). Pour être prévenu journal fermé, ajoute les alertes à l'agenda de ton téléphone.</div>
+      ${nx.length ? `<div class="ns-sec"><div class="ms-title">Prochaines alertes</div><ul class="na-next">${nx.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '<p class="muted small">Aucune alerte prévue avec ces réglages dans les données chargées.</p>'}
+      <div class="actions"><button class="btn" id="na-test">Tester</button><button class="btn" id="na-ics">📅 Ajouter à mon agenda (.ics)</button><button class="btn primary" id="na-save">Enregistrer</button></div>
+    </div></div>`;
+  }
+  let _naDraft = null;
+  function wireNewsAlerts() {
+    if (!_naDraft) _naDraft = JSON.parse(JSON.stringify(newsAlertCfg()));
+    const redraw = () => { DB.newsAlerts = _naDraft; renderNews(); };
+    $('#na-on').onchange = e => { _naDraft.enabled = e.target.checked; redraw(); };
+    document.querySelectorAll('[data-lead]').forEach(b => b.onclick = () => { const v = +b.dataset.lead, i = _naDraft.leads.indexOf(v); if (i >= 0) { if (_naDraft.leads.length > 1) _naDraft.leads.splice(i, 1); } else _naDraft.leads.push(v); redraw(); });
+    document.querySelectorAll('[data-accy]').forEach(b => b.onclick = () => { const v = b.dataset.accy, i = _naDraft.currencies.indexOf(v); if (i >= 0) { if (_naDraft.currencies.length > 1) _naDraft.currencies.splice(i, 1); } else _naDraft.currencies.push(v); redraw(); });
+    document.querySelectorAll('[data-aimp]').forEach(b => b.onclick = () => { const v = b.dataset.aimp, i = _naDraft.impacts.indexOf(v); if (i >= 0) { if (_naDraft.impacts.length > 1) _naDraft.impacts.splice(i, 1); } else _naDraft.impacts.push(v); redraw(); });
+    if ($('#na-perm')) $('#na-perm').onclick = () => { try { Notification.requestPermission().then(() => renderNews()); } catch (e) {} };
+    $('#na-test').onclick = () => { notifyNews('🚨 Test : USD CPI m/m dans 10 mn', 'Exemple d\'alerte news du journal', 'news-test'); toast('🚨 Test : USD CPI m/m dans 10 mn', 6000); };
+    $('#na-ics').onclick = () => { DB.newsAlerts = _naDraft; icsExport(); };
+    const close = () => { NUI.alerts = false; _naDraft = null; renderNews(); };
+    $('#na-x').onclick = () => { DB.newsAlerts = NUI._abk || DB.newsAlerts; delete NUI._abk; close(); };
+    if (!NUI._abk) NUI._abk = JSON.parse(JSON.stringify(newsAlertCfg()));
+    $('#na-save').onclick = async () => { DB.newsAlerts = _naDraft; delete NUI._abk; NUI.alerts = false; _naDraft = null; await save('Alertes news enregistrées'); startNewsAlertLoop(); renderNews(); };
+  }
+
+  function initNewsAlerts() { if (!DB) return; registerSW(); loadNewsEvents().then(() => { updateStatusBar(); startNewsAlertLoop(); }).catch(() => {}); }
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }

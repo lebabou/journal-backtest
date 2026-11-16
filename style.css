@@ -557,3 +557,18 @@ a.btn{text-decoration:none}
 .ml-item img{width:100%;height:90px;object-fit:cover;border-radius:6px}
 .ml-ph{height:90px;display:flex;align-items:center;justify-content:center;background:var(--panel2);border-radius:6px;font-size:24px}
 @media(max-width:600px){.ml-row{grid-template-columns:1fr auto}.ml-row .ml-note{grid-column:1/2;grid-row:2}}
+/* V8 : progression du formulaire, alertes news */
+.fp-bar{position:sticky;top:-1px;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0 12px;box-shadow:var(--shadow,0 2px 6px rgba(0,0,0,.15))}
+.fp-top{display:flex;align-items:baseline;gap:8px}
+.fp-top b{font-size:18px}
+.fp-lbl{color:var(--muted);font-size:13px;flex:1}
+.fp-more{border:0;background:none;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;padding:0}
+.fp-track{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:6px}
+.fp-track span{display:block;height:100%;width:0;transition:width .3s ease,background-color .3s}
+.fp-track span.low{background:var(--loss)}.fp-track span.mid{background:var(--be)}.fp-track span.ok{background:var(--win)}
+.fp-miss{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.fp-miss button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:14px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer}
+.na-next{margin:6px 0 0;padding-left:18px;font-size:13px}
+@media (prefers-reduced-motion:reduce){.fp-track span{transition:none}}
+.fp-miss{max-height:92px;overflow:auto}
+.nc-modal .actions{flex-wrap:wrap;justify-content:flex-end}
