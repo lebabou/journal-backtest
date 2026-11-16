@@ -2269,7 +2269,14 @@
 
   /* ---- checklist figée (écrite par checklist.html, même navigateur) ---- */
   const SNAP_KEY = 'checklist_frozen_v1:' + APP_ID;
-  function pendingSnap() { try { const s = JSON.parse(localStorage.getItem(SNAP_KEY)); if (s && !s.used && s.date === todayISO()) return s; } catch (e) {} return null; }
+  function pendingSnap() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SNAP_KEY)); if (!s || s.date !== todayISO()) return null;
+      // « utilisée » ne compte que si le trade a réellement reçu cette checklist (un enregistrement annulé ne la consomme plus)
+      if (s.used && DB && DB.trades && DB.trades.some(t => t.checklistSnap && t.checklistSnap.at === s.at)) return null;
+      delete s.used; return s;
+    } catch (e) {} return null;
+  }
   function markSnapUsed(n) { try { const s = JSON.parse(localStorage.getItem(SNAP_KEY)); if (s) { s.used = n; localStorage.setItem(SNAP_KEY, JSON.stringify(s)); } } catch (e) {} }
   const PRE_FIELDS = [['setup', 'Setup'], ['execPoi', 'POI d\'exécution'], ['bias', 'Bias alignment'], ['poi', 'POI haute probabilité'], ['sweep', 'Liquidity sweep + Market Shift'], ['fomo', 'FOMO / impulsion']];
   const fmtStamp = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
@@ -2345,7 +2352,7 @@
     const kz = killzoneAt(o.entryTime);
     if (kz) { o.killzone = kz.inKz ? 'Yes' : 'No'; o.killzoneAuto = 'time'; o.killzoneName = kz.name; }
     else if (isNew || t.killzoneAuto) { const s = sessionKz(base.session); if (s !== null) { o.killzone = s ? 'Yes' : 'No'; o.killzoneAuto = 'session'; o.killzoneName = s ? base.session : ''; } }
-    ['preLockedAt', 'preOriginal', 'preEdits', 'checklistSnap', 'entryEmotion', 'exitEmotion', 'style', 'corr1', 'corr2'].forEach(k => { if (t[k] !== undefined && base[k] === undefined) o[k] = t[k]; });
+    ['preLockedAt', 'preOriginal', 'preEdits', 'checklistSnap', 'checklistLate', 'entryEmotion', 'exitEmotion', 'style', 'corr1', 'corr2'].forEach(k => { if (t[k] !== undefined && base[k] === undefined) o[k] = t[k]; });
     const now = new Date().toISOString();
     if (isNew) o.preLockedAt = now;
     else if (t.preLockedAt) {
@@ -2353,7 +2360,7 @@
       if (changed.length) { o.preOriginal = t.preOriginal || Object.fromEntries(PRE_FIELDS.map(([k]) => [k, t[k] || ''])); o.preEdits = (t.preEdits || []).concat([{ at: now, fields: changed }]); }
     }
     const sc = document.getElementById('f-attachSnap');
-    if (sc && sc.checked) { const s = pendingSnap(); if (s) { o.checklistSnap = s; o.preLockedAt = s.at; o.preLockedSrc = 'checklist'; markSnapUsed(base.n); } }
+    if (sc && sc.checked) { const s = pendingSnap(); if (s) { o.checklistSnap = s; o.preLockedAt = s.at; o.preLockedSrc = 'checklist'; const et = o.entryTime || base.entryTime; if (et && s.time > et) o.checklistLate = true; else delete o.checklistLate; markSnapUsed(base.n); } }
     delete o.used;
     return o;
   }
@@ -3720,13 +3727,14 @@
     const s = t.checklistSnap, r = snapRate(s);
     const base = `🔒 Critères pré-entrée figés le ${esc(fmtStamp(t.preLockedAt))}`;
     if (!s) return base + ' · <span class="muted">sans checklist figée</span>';
+    if (t.checklistLate) return base + ` · checklist ${s.done}/${s.total} (${pct(r)}) <span class="snap-late">figée après l'entrée, exclue des statistiques pré-entrée</span>`;
     const cls2 = r >= 1 ? 'pos' : r >= 0.8 ? '' : 'neg';
     return base + ` · checklist <b class="${cls2}">${s.done}/${s.total} (${pct(r)})</b> <span class="muted small">${snapSections(s).map(x => esc(x.k) + ' ' + x.d + '/' + x.n).join(' · ')}</span>`;
   }
   function checklistStatsHTML(ts) {
     const T = ts.filter(takenT).filter(t => S.filled(t.ret));
     if (!T.length) return '';
-    const W = T.filter(t => t.checklistSnap && t.checklistSnap.total);
+    const W = T.filter(t => hasSnap(t));
     const head = `<h2>Checklist pré-entrée</h2>`;
     if (!W.length) return head + `<div class="note">Aucun trade de la sélection n'a de checklist figée. Avant d'entrer, ouvre la checklist (bouton ✅), coche les points puis appuie sur « 📌 Figer (entrée) » : elle sera jointe au trade et ses statistiques apparaîtront ici (routine pré-market, chart process, critères d'entrée).</div>`;
     const avg = meanOf(W.map(t => snapRate(t.checklistSnap)));
@@ -3741,7 +3749,7 @@
       </div>
       <div class="cl-secs">${Object.entries(secs).map(([k, r]) => { const v = r.n ? r.d / r.n : 0; return `<div class="cons-c"><div class="cons-ch"><span>${esc(k)}</span><b>${pct(v)}</b></div><div class="cons-bar"><span style="width:${Math.round(v * 100)}%;background:${v >= .95 ? 'var(--win)' : v >= .8 ? 'var(--be)' : 'var(--loss)'}"></span></div><div class="muted small">${r.d}/${r.n} points cochés · section complète sur ${r.full}/${r.trades} trades</div></div>`; }).join('')}</div>
       <div class="twrap" style="max-height:none;margin-top:12px"><table><thead><tr><th>Checklist</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Espérance</th><th class="num">Net R</th></tr></thead><tbody>
-        ${line('Complète (100 %)', full)}${line('Incomplète', part)}${line('Non figée', T.filter(t => !(t.checklistSnap && t.checklistSnap.total)))}</tbody></table></div>
+        ${line('Complète (100 %)', full)}${line('Incomplète', part)}${line('Non figée ou figée après l\'entrée', T.filter(t => !hasSnap(t)))}</tbody></table></div>
       <p class="muted small">${full.length >= 5 && part.length >= 5 ? `Différence d'espérance complète / incomplète : p = ${fmtP(pE)} (Welch). ` : ''}Lignes grisées : moins de 5 trades, non concluant. Le taux mesure les points cochés au moment du gel, avant l'entrée.</p>
     </div>`;
   }
@@ -3964,13 +3972,13 @@
       ${pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3.5" class="${p[1] > 0 ? 'sc-w' : p[1] < 0 ? 'sc-l' : 'sc-b'}"/>`).join('')}</svg>`;
   }
   function checklistCorrHTML(ts) {
-    const T = ts.filter(takenT).filter(t => S.filled(t.ret)), W = T.filter(t => t.checklistSnap && t.checklistSnap.total);
+    const T = ts.filter(takenT).filter(t => S.filled(t.ret)), W = T.filter(t => hasSnap(t));
     const head = `<h2>Checklist ↔ résultat</h2>`;
     if (!W.length) return head + `<div class="note">Aucun trade n'a encore de checklist figée : la corrélation sera calculée dès que tes trades auront une checklist jointe (bouton ✅ puis « 📌 Figer (entrée) »).</div>`;
     const x = W.map(t => snapRate(t.checklistSnap)), y = W.map(t => +t.ret), pr = pearson(x, y);
     const sp = W.length >= 3 ? pearson(ranks(x), ranks(y)) : null;
     const bk = [['< 80 %', t => snapRate(t.checklistSnap) < .8], ['80 – 99 %', t => { const r = snapRate(t.checklistSnap); return r >= .8 && r < 1; }], ['100 %', t => snapRate(t.checklistSnap) >= 1]];
-    const none = T.filter(t => !(t.checklistSnap && t.checklistSnap.total));
+    const none = T.filter(t => !hasSnap(t));
     const line = (l, a) => { const r = rets(a), ci = meanCI(r); return `<tr><td>${l}</td><td class="num">${r.length}</td><td class="num">${r.length ? pct(r.filter(v => v > 0).length / r.length) : '–'}</td><td class="num ${cls(meanOf(r))}">${r.length ? sgn(meanOf(r)) : '–'}</td><td class="num">${ci[0] === null ? '–' : `[${num(ci[0])} ; ${num(ci[1])}]`}</td></tr>`; };
     const full = W.filter(bk[2][1]), part = W.filter(t => !bk[2][1](t));
     const wF = full.filter(t => t.ret > 0).length, wP = part.filter(t => t.ret > 0).length;
@@ -3992,7 +4000,7 @@
       <p class="muted small">Tests : win rate 100 % vs incomplète, p = ${fmtP(pW)} (Fisher exact) · espérance 100 % vs incomplète, p = ${fmtP(pE)} (Welch) · avec vs sans checklist figée, p = ${fmtP(pFr)} (Welch). Plusieurs tests sur les mêmes données : un p &lt; 0,05 isolé peut être dû au hasard (correction de Bonferroni : seuil 0,017 pour 3 tests). Le remplissage est mesuré au moment du gel, avant l'entrée.</p></div>`;
   }
   { const _ra = renderAnalysis; renderAnalysis = function () { _ra(); try { const ts = DB.trades.filter(takenT).filter(t => S.filled(t.ret)); const at = [...$('#main').children].find(c => c.tagName === 'H2' && /^Par catégorie/.test(c.textContent)); const html = checklistCorrHTML(ts); if (at) at.insertAdjacentHTML('beforebegin', html); else $('#main').insertAdjacentHTML('beforeend', html); } catch (e) { console.error(e); } }; }
-  { const _rd = renderDashboard; renderDashboard = function () { _rd(); try { const c = document.querySelector('.cl-stats'); if (!c) return; const W = enriched().filter(takenT).filter(t => S.filled(t.ret) && t.checklistSnap && t.checklistSnap.total); const pr = pearson(W.map(t => snapRate(t.checklistSnap)), W.map(t => +t.ret)); if (pr && pr.r !== null) c.insertAdjacentHTML('beforeend', `<p class="small">Corrélation remplissage ↔ R (tous les trades) : <b>r = ${num(pr.r, 2)}</b>, p = ${fmtP(pr.p)}, n = ${pr.n}${pr.n < N_MIN ? ` <span class="nb">n&lt;${N_MIN}</span>` : ''} · détail dans <a href="#/analysis">Analyse</a>.</p>`); } catch (e) {} }; }
+  { const _rd = renderDashboard; renderDashboard = function () { _rd(); try { const c = document.querySelector('.cl-stats'); if (!c) return; const W = enriched().filter(takenT).filter(t => S.filled(t.ret) && hasSnap(t)); const pr = pearson(W.map(t => snapRate(t.checklistSnap)), W.map(t => +t.ret)); if (pr && pr.r !== null) c.insertAdjacentHTML('beforeend', `<p class="small">Corrélation remplissage ↔ R (tous les trades) : <b>r = ${num(pr.r, 2)}</b>, p = ${fmtP(pr.p)}, n = ${pr.n}${pr.n < N_MIN ? ` <span class="nb">n&lt;${N_MIN}</span>` : ''} · détail dans <a href="#/analysis">Analyse</a>.</p>`); } catch (e) {} }; }
 
   /* ---- 5. formulaire en 3 étapes ---- */
   const STEP_DEF = () => [
@@ -4257,6 +4265,51 @@
       try { const t = DB.trades.find(x => x.n === n); const det = document.querySelector('#modal .details'); if (!t || !det || (!yesNo(t.goodTrade) && !isSet(t.execScore) && !t.execReview)) return;
         det.insertAdjacentHTML('afterend', `<h3>Post-market</h3><div class="textblock">${yesNo(t.goodTrade) ? `<b>Bon trade :</b> ${yesNo(t.goodTrade) === 'Yes' ? 'oui' : 'non'}${t.ret > 0 && yesNo(t.goodTrade) === 'No' ? ' (gain chanceux)' : t.ret <= 0 && yesNo(t.goodTrade) === 'Yes' ? ' (bonne perte)' : ''}\n` : ''}${isSet(t.execScore) ? `<b>Qualité d'exécution :</b> ${t.execScore}/5\n` : ''}${t.execReview ? `<b>Revue :</b> ${esc(t.execReview)}` : ''}</div>`);
       } catch (e) {} }; }
+
+  /* ================= V12 : checklist figée — jointure après coup, détection en direct, gel tardif ================= */
+  const hasSnap = t => !!(t && t.checklistSnap && t.checklistSnap.total && !t.checklistLate);
+  function snapBoxHTML(s, entry) {
+    const late = entry && s.time > entry;
+    return `<label class="snap-box"><input type="checkbox" id="f-attachSnap" checked> 📌 Joindre la checklist figée à <b>${esc(s.time)}</b> : ${s.done}/${s.total} points cochés (${pct(snapRate(s))}) · ${esc(s.planName || 'plan')}.${late ? ` <span class="snap-late">⚠ Figée après l'heure d'entrée (${esc(entry)}) : elle sera jointe mais comptée à part dans les statistiques pré-entrée.</span>` : ` L'heure de verrouillage sera ${esc(s.time)}.`}</label>`;
+  }
+  function snapAttachUI(t, isNew) {
+    const form = document.querySelector('#modal .form'); if (!form || document.getElementById('f-attachSnap') || (t && t.checklistSnap)) return;
+    const s = pendingSnap(), today = todayISO();
+    let top = form.querySelector('.fstep-top'); if (!top) { top = document.createElement('div'); top.className = 'fstep-top'; form.insertBefore(top, form.firstChild); }
+    const old = top.querySelector('.snap-none'); if (old) old.remove();
+    const date = (document.getElementById('f-date') || {}).value || (t && t.date) || today;
+    if (s && (isNew || date === s.date)) {
+      const et = document.getElementById('f-entryTime');
+      top.insertAdjacentHTML('afterbegin', snapBoxHTML(s, et && et.value));
+      if (et && !et.value && isNew) { et.value = s.time; et.dispatchEvent(new Event('change', { bubbles: true })); }
+      if (et) et.addEventListener('change', () => { const b = top.querySelector('.snap-box'); if (b) { const was = document.getElementById('f-attachSnap').checked; b.outerHTML = snapBoxHTML(s, et.value); document.getElementById('f-attachSnap').checked = was; } });
+    } else if (isNew || date === today) {
+      top.insertAdjacentHTML('afterbegin', `<div class="snap-none">📌 Aucune checklist figée aujourd'hui <b>sur cet appareil</b>. <a href="checklist.html" target="_blank" rel="noopener">Ouvrir la checklist</a>, coche les points puis « 📌 Figer (entrée) » : elle apparaîtra ici automatiquement.</div>`);
+    }
+  }
+  let _snapCtx = null;
+  { const _et3 = editTrade; editTrade = function (n) {
+      _et3(n); const isNew = n === null || n === undefined, t = isNew ? null : DB.trades.find(x => x.n === n);
+      _snapCtx = { t, isNew }; try { snapAttachUI(t, isNew); } catch (e) { console.error(e); }
+    }; }
+  const _snapRecheck = () => { if (!_snapCtx || !document.querySelector('#modal .form')) return; try { snapAttachUI(_snapCtx.t, _snapCtx.isNew); } catch (e) {} };
+  window.addEventListener('storage', e => { if (e.key === SNAP_KEY) _snapRecheck(); });
+  { const _ot2 = openTrade; openTrade = function (n) {
+      _ot2(n);
+      try {
+        const t = DB.trades.find(x => x.n === n), sn = pendingSnap(), lb = document.querySelector('#modal .details');
+        if (!t || t.checklistSnap || !sn || sn.date !== t.date || !lb) return;
+        const late = t.entryTime && sn.time > t.entryTime;
+        lb.insertAdjacentHTML('beforebegin', `<div class="snap-box snap-offer">📌 Checklist figée à <b>${esc(sn.time)}</b> (${sn.done}/${sn.total}, ${pct(snapRate(sn))}) non jointe. ${late ? `<span class="snap-late">Figée après l'entrée (${esc(t.entryTime)}) : comptée à part.</span> ` : ''}<button class="btn sm primary" id="snap-join">Joindre à ce trade</button></div>`);
+        $('#snap-join').onclick = async () => {
+          const s2 = pendingSnap(); if (!s2) return;
+          t.checklistSnap = s2; t.preLockedAt = s2.at; t.preLockedSrc = 'checklist'; if (t.entryTime && s2.time > t.entryTime) t.checklistLate = true; else delete t.checklistLate;
+          if (await save('Checklist jointe au trade #' + t.n)) { markSnapUsed(t.n); openTrade(t.n); render(); }
+        };
+      } catch (e) { console.error(e); }
+    }; }
+  window.addEventListener('focus', _snapRecheck);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) _snapRecheck(); });
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }

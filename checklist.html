@@ -198,6 +198,9 @@ h1{font-size:20px;padding:12px 0 8px;display:flex;align-items:center;gap:8px}
     var d = new Date(), today = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     if (s && s.date === today) {
       el.hidden = false;
+      var attached = false;
+      if (s.used) { try { var dbc = JSON.parse(localStorage.getItem('drive_cache_' + APP + '.json')); var db = dbc && (dbc.db || dbc.data || dbc); attached = !!(db && db.trades && db.trades.some(function(t) { return t.checklistSnap && t.checklistSnap.at === s.at; })); } catch (e) { attached = true; } }
+      if (s.used && !attached) { el.textContent = '\u26a0\ufe0f Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') pas encore jointe : enregistrement interrompu. Ouvre le trade dans le journal et appuie sur \u00ab Joindre \u00e0 ce trade \u00bb.'; return; }
       el.textContent = s.used ? '\u2705 Checklist fig\u00e9e \u00e0 ' + s.time + ' jointe au trade #' + s.used + '.' : '\ud83d\udccc Checklist fig\u00e9e \u00e0 ' + s.time + ' (' + s.done + '/' + s.total + ') : elle sera jointe au prochain trade enregistr\u00e9 aujourd\u2019hui.';
     } else el.hidden = true;
   }

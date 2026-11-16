@@ -714,3 +714,8 @@ details.fstep[open]>summary::after{transform:rotate(90deg)}
 table.gw td,table.gw th{vertical-align:top}
 .gw-c.ok b{color:var(--win)}.gw-c.mid b{color:var(--be)}.gw-c.warn b{color:var(--be)}.gw-c.bad b{color:var(--loss)}
 table.gw th div{text-transform:none;letter-spacing:0;font-weight:500;margin-top:3px}
+.snap-none{font-size:13px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);text-transform:none;letter-spacing:0}
+.snap-none a{color:var(--accent);font-weight:600}
+.snap-late{color:var(--be);font-weight:600}
+.snap-offer{display:block;margin:10px 0;padding:9px 12px;border:1px solid var(--accent);border-radius:10px;font-size:13px}
+.snap-offer .btn{margin-left:6px}
