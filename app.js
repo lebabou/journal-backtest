@@ -2326,8 +2326,12 @@
       el.innerHTML = sl > 0 ? `<span class="muted small">≈ MAE ${a === '' ? '–' : num(a / sl) + ' R'} · MFE ${b === '' ? '–' : num(b / sl) + ' R'}</span>` : ((a !== '' || b !== '') ? '<span class="badge Loss">Taille du SL requise pour convertir en R</span>' : ''); };
     ['#f-slPips', '#f-maePips', '#f-mfePips'].forEach(s => $(s) && $(s).addEventListener('input', conv)); conv();
     if (!isNew && t.preLockedAt) {
-      PRE_FIELDS.forEach(([k]) => { const el = $('#f-' + k); if (el) el.disabled = true; });
-      $('#f-unlock').onclick = () => {
+      // seuls les critères déjà renseignés sont figés : un champ resté vide peut toujours être complété
+      const lockedK = PRE_FIELDS.map(([k]) => k).filter(k => String(t[k] || '').trim() !== '');
+      lockedK.forEach(k => { const el = $('#f-' + k); if (el) el.disabled = true; });
+      if (!lockedK.length && $('#f-unlock')) $('#f-unlock').remove();
+      else if (lockedK.length < PRE_FIELDS.length && $('#f-lockbar')) $('#f-lockbar').insertAdjacentHTML('beforeend', '<div class="muted small lock-note">Les critères encore vides restent modifiables.</div>');
+      if ($('#f-unlock')) $('#f-unlock').onclick = () => {
         if (!confirm('Modifier les critères pré-entrée après coup ?\nLa modification sera enregistrée (date + valeurs d\'origine conservées) et le trade sera signalé dans l\'onglet Analyse.')) return;
         PRE_FIELDS.forEach(([k]) => { const el = $('#f-' + k); if (el) el.disabled = false; });
         $('#f-lockbar').classList.add('open'); $('#f-unlock').remove();
@@ -2356,7 +2360,7 @@
     const now = new Date().toISOString();
     if (isNew) o.preLockedAt = now;
     else if (t.preLockedAt) {
-      const cur = Object.assign({}, base, o), changed = PRE_FIELDS.map(p => p[0]).filter(k => String(t[k] || '') !== String(cur[k] || ''));
+      const cur = Object.assign({}, base, o), changed = PRE_FIELDS.map(p => p[0]).filter(k => String(t[k] || '').trim() !== '' && String(t[k] || '') !== String(cur[k] || ''));
       if (changed.length) { o.preOriginal = t.preOriginal || Object.fromEntries(PRE_FIELDS.map(([k]) => [k, t[k] || ''])); o.preEdits = (t.preEdits || []).concat([{ at: now, fields: changed }]); }
     }
     const sc = document.getElementById('f-attachSnap');
