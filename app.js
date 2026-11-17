@@ -11,7 +11,8 @@
   const sgn = (x, d = 2) => x === null || x === undefined ? '–' : (x > 0 ? '+' : '') + Number(x).toFixed(d);
   const pct = (x, d = 0) => x === null || x === undefined ? '–' : (x * 100).toFixed(d) + ' %';
   const cls = x => x > 0 ? 'pos' : x < 0 ? 'neg' : '';
-  const SLOTS = [['htf', 'HTF'], ['mtf1h', 'MTF (1h)'], ['mtf15', 'MTF (15mn)'], ['ltf', 'LTF']];
+  const SLOTS = [['htf', 'HTF'], ['mtf1h', 'MTF (1h)'], ['mtf15', 'MTF (15mn)'], ['ltf', 'LTF'], ['after', 'Après le trade']];
+  const PRE_SLOTS = ['htf', 'mtf1h', 'mtf15', 'ltf'];
 
   let DB = null, view = 'dashboard';
   const ui = {
@@ -999,9 +1000,9 @@
         <label>Session<input id="f-session" list="dl-sess" value="${esc(t.session)}"></label>
         ${!isNew && t.duration ? '<label>Durée (hh:mm)<input id="f-duration" type="text" inputmode="numeric" pattern="[0-9]{1,2}:[0-9]{2}" placeholder="00:00" value="' + esc(val(t.duration)) + '"></label>' : ''}
         <fieldset><legend>Entrée CONSERVATIVE</legend><div class="row">
-          <label>Entrée<input id="f-entry" list="dl-entry" value="${esc(t.entry)}"></label>
-          <label>SL<input id="f-sl" list="dl-sl" value="${esc(t.sl)}"></label>
-          <label>TP<input id="f-tp" list="dl-tp" value="${esc(t.tp)}"></label>
+          <label>Entrée<select id="f-entry">${closedOpts(lst('entries'), t.entry || '')}</select></label>
+          <label>SL<select id="f-sl">${closedOpts(lst('sl'), t.sl || '')}</select></label>
+          <label>TP<select id="f-tp">${closedOpts(lst('tp'), t.tp || '')}</select></label>
           ${inp('f-risk', 'Risque (R)', t.risk, 'number', 'step="0.01"')}${inp('f-ret', 'Return (R)', t.ret, 'number', 'step="0.01"')}</div></fieldset>
         <fieldset><legend>Entrée AGGRESSIVE (simulation du même trade)</legend><div class="row">
           <label>Entrée<input id="f-aentry" list="dl-aentry" value="${esc(a.entry)}"></label>
@@ -2189,7 +2190,10 @@
     execPoi: ['SND', 'FVG', 'OB'],
     exitTypes: ['TP atteint', 'SL touché', 'Breakeven', 'Sortie manuelle', 'Sortie partielle', 'Time stop'],
     mistakeTags: ['FOMO / entrée impulsive', 'Mauvaise lecture de structure (sweep ≠ BOS/MS)', 'Contre le biais / la direction HTF', 'Pas attendu le sweep de liquidité', 'POI / setup de faible qualité', 'Entrée trop tôt (sans confirmation)', 'SL trop serré / sans buffer', 'TP mal placé / déplacé / sortie anticipée', 'News ignorée', 'Routine pré-market non faite', 'Overtrade / revenge / garde-fous', 'Scaling / ajout de position'],
-    emotions: ['Calme', 'Confiant', 'Patient', 'Concentré', 'Anxieux', 'Impatient', 'Euphorique', 'Frustré', 'Peur', 'Doute'],
+    emotions: ['Calme', 'Confiant', 'Patient', 'Concentré', 'Anxieux', 'Impatient', 'Euphorique', 'Frustré', 'Peur', 'Doute', 'Confus'],
+    entries: ['DZ EM', 'SZ EM', 'FZ EM', 'Aggressive'],
+    sl: ['FZ Structure', 'Structural Swing'],
+    tp: ['DZ', 'SZ', 'Structural Swing', 'Target', 'Fixed'],
   };
   const lst = k => (DB && DB.lists && DB.lists[k] && DB.lists[k].length) ? DB.lists[k] : (DEF_LISTS[k] || []);
   const vOr = v => v === null || v === undefined ? '' : v;
@@ -4008,10 +4012,10 @@
 
   /* ---- 5. formulaire en 3 étapes ---- */
   const STEP_DEF = () => [
-    ['pre', '① Avant l\'entrée', ['f-date', 'f-instrument', 'f-direction', 'f-session', 'f-planId', 'f-setup', 'f-bias', 'f-poi', 'f-killzone', 'f-sweep', 'f-plannedR', 'f-slPips', 'f-risk', 'f-emoEntry']],
+    ['pre', '① Avant l\'entrée', ['f-date', 'f-instrument', 'f-direction', 'f-session', 'f-planId', 'f-setup', 'f-bias', 'f-poi', 'f-killzone', 'f-sweep', 'f-plannedR', 'f-slPips', 'f-risk', 'f-emoEntry'].concat(PRE_SLOTS.map(k => 'f-s-' + k))],
     ['exec', '② Exécution', ['f-entryTime', 'f-exitTime', 'f-kzind', 'f-entry', 'f-sl', 'f-tp', 'f-execPoi', 'f-management', 'f-exitType', 'f-ret', 'f-rconv', 'f-emoDuring']],
-    ['post', '③ Après', ['f-planFollow', 'f-riskRespected', 'f-invalidation', 'f-fomo', 'f-overtrade', 'f-revenge', 'f-goodTrade', 'f-execScore', 'f-execReview', 'f-mtags', 'f-mistakes', 'f-notes', 'f-emoExit']],
-    ['more', '＋ Détails', ['f-improvement', 'f-maePips', 'f-mfePips', 'f-grBroken', 'f-duration', 'f-style', 'f-corr1', 'f-corr2'].concat(SLOTS.map(([k]) => 'f-s-' + k))],
+    ['post', '③ Après', ['f-planFollow', 'f-riskRespected', 'f-invalidation', 'f-fomo', 'f-overtrade', 'f-revenge', 'f-goodTrade', 'f-execScore', 'f-execReview', 'f-mtags', 'f-mistakes', 'f-notes', 'f-emoExit', 'f-s-after']],
+    ['more', '＋ Détails', ['f-improvement', 'f-maePips', 'f-mfePips', 'f-grBroken', 'f-duration', 'f-style', 'f-corr1', 'f-corr2']],
   ];
   const fieldBox = el => el.closest('.wide') || el.closest('.emo-field, .ms-field, .snap-box, label, .kz-ind') || el;
   const isFilled = el => { if (!el) return false; if (el.matches('details.ms')) return !!el.querySelector('input:checked'); if (el.type === 'checkbox') return el.checked; return String(el.value || '').trim() !== ''; };
@@ -4045,6 +4049,10 @@
     if (!isNew) for (const s of steps.slice(0, 3)) { const c = s.querySelector('.fstep-c').textContent.split('/'); if (+c[0] < +c[1]) { s.open = true; opened = true; break; } }
     if (!opened) steps[0].open = true;
     if (EXPAND_ALL) steps.forEach(s => { s.open = true; });
+    // sous-titres des captures
+    const sub = (id, txt) => { const el = document.getElementById(id); const box = el && el.closest('label'); if (box) box.insertAdjacentHTML('beforebegin', `<div class="fstep-sub">${txt}</div>`); };
+    sub('f-s-' + PRE_SLOTS[0], '📷 Captures avant l\'entrée <span class="muted small">(un lien TradingView par ligne)</span>');
+    sub('f-s-after', '📷 Captures après le trade <span class="muted small">(un lien par ligne : sortie, gestion, suite du prix…)</span>');
   }
   document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-goto]'); if (!b) return; const el = document.getElementById(b.dataset.goto); for (let d = el && el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true; }, true);
   { const _et = editTrade; editTrade = function (n) { _et(n); try { formSteps(n === null || n === undefined); } catch (e) { console.error(e); } }; }
@@ -4345,6 +4353,16 @@
   { const _r2 = render; render = function () { _r2(); setTimeout(() => syncSnaps(), 0); }; }
   window.addEventListener('focus', () => syncSnaps().then(_snapRecheck));
   setInterval(() => { if (!document.hidden) syncSnaps(); }, 60000);
+
+  /* ================= V14 : listes fermées Entrée / SL / TP, émotion « Confus » ================= */
+  function migrateLists14() {
+    if (!DB || DB.listsV14) return;
+    if (!DB.lists) DB.lists = {};
+    DB.lists.entries = DEF_LISTS.entries.slice(); DB.lists.sl = DEF_LISTS.sl.slice(); DB.lists.tp = DEF_LISTS.tp.slice();
+    if (Array.isArray(DB.lists.emotions) && DB.lists.emotions.length && DB.lists.emotions.indexOf('Confus') < 0) DB.lists.emotions.push('Confus');
+    DB.listsV14 = true;
+  }
+  { const _r3 = render; render = function () { try { migrateLists14(); } catch (e) {} _r3(); }; }
 
   /* ---------- DONNÉES ---------- */
   function download(name, text, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }

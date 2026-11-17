@@ -719,3 +719,4 @@ table.gw th div{text-transform:none;letter-spacing:0;font-weight:500;margin-top:
 .snap-late{color:var(--be);font-weight:600}
 .snap-offer{display:block;margin:10px 0;padding:9px 12px;border:1px solid var(--accent);border-radius:10px;font-size:13px}
 .snap-offer .btn{margin-left:6px}
+.fstep-sub{grid-column:1/-1;font-weight:700;font-size:13px;margin:10px 0 0;padding-top:8px;border-top:1px solid var(--line)}
